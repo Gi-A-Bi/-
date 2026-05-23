@@ -10,35 +10,54 @@
 }
 
 :root {
-  --primary: #7c3aed;
-  --primary-light: #a78bfa;
-  --primary-dark: #5b21b6;
-  --accent: #fbbf24;
-  --accent-2: #f472b6;
-  --bg-grad-1: #fef3c7;
-  --bg-grad-2: #fce7f3;
-  --bg-grad-3: #ddd6fe;
+  /* === 다크 판타지 RPG 팔레트 === */
+  --primary: #c9a14a;           /* 금색 (메인 강조) */
+  --primary-light: #f0d77a;     /* 밝은 금 */
+  --primary-dark: #7a5e1f;      /* 어두운 금 */
+  --accent: #f3c761;            /* 빛나는 금 */
+  --accent-2: #c084fc;          /* 마법 보라 */
 
-  --bronze: #cd7f32;
-  --bronze-light: #f4a261;
-  --silver: #94a3b8;
-  --silver-light: #cbd5e1;
-  --gold: #fbbf24;
+  /* 다크 배경 (남색~자주색) */
+  --bg-grad-1: #1a1535;         /* 어두운 남색 */
+  --bg-grad-2: #2a1a4a;         /* 어두운 자주 */
+  --bg-grad-3: #0e0a23;         /* 더 깊은 남색 */
+  --bg-base: #0a0818;           /* 베이스 (거의 흑) */
+
+  /* 등급 배지 (금속/보석 톤) */
+  --bronze: #b87333;
+  --bronze-light: #e8a878;
+  --bronze-dark: #6b3f15;
+  --silver: #b9c3cd;
+  --silver-light: #e6ecf2;
+  --silver-dark: #5a6772;
+  --gold: #f3c761;
   --gold-light: #fde68a;
+  --gold-dark: #8a6512;
 
-  --hp-red: #ef4444;
-  --hp-gray: #e5e7eb;
+  /* HP/MP */
+  --hp-red: #ff4d4d;            /* 보석 같은 빨강 */
+  --hp-gray: #2a2545;           /* 빈 하트 (다크 보라) */
+  --mp-blue: #6ab7ff;
 
-  --success: #22c55e;
-  --danger: #ef4444;
-  --warning: #f59e0b;
-  --info: #3b82f6;
+  /* 상태 색 */
+  --success: #4ade80;
+  --danger: #ff5577;
+  --warning: #fbbf24;
+  --info: #7dd3fc;
 
-  --text: #1f2937;
-  --text-light: #6b7280;
-  --card-bg: #ffffff;
-  --shadow: 0 4px 14px rgba(124, 58, 237, 0.12);
-  --shadow-lg: 0 10px 30px rgba(124, 58, 237, 0.18);
+  /* 텍스트 (밝은 톤) */
+  --text: #f5e9c8;              /* 양피지 아이보리 */
+  --text-light: #b8a982;        /* 어두운 양피지 */
+  --text-dim: #8a7d5f;
+
+  /* 카드 (어두운 금테 인벤토리 슬롯) */
+  --card-bg: linear-gradient(160deg, #2a2148 0%, #1a1535 60%, #110a2a 100%);
+  --card-border: #c9a14a;
+  --card-border-dim: #6e5526;
+
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(201, 161, 74, 0.18);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 24px rgba(201, 161, 74, 0.22);
+  --glow-gold: 0 0 12px rgba(243, 199, 97, 0.55);
 }
 
 html, body {
@@ -47,13 +66,33 @@ html, body {
   font-family: 'Jua', 'Gaegu', system-ui, -apple-system, sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at 0% 0%, var(--bg-grad-1) 0%, transparent 50%),
-    radial-gradient(circle at 100% 0%, var(--bg-grad-2) 0%, transparent 50%),
-    radial-gradient(circle at 50% 100%, var(--bg-grad-3) 0%, transparent 50%),
-    #faf5ff;
+    /* 가장자리 비네팅 */
+    radial-gradient(ellipse at top, var(--bg-grad-2) 0%, transparent 55%),
+    radial-gradient(ellipse at bottom, var(--bg-grad-1) 0%, transparent 60%),
+    radial-gradient(circle at 50% 30%, rgba(192, 132, 252, 0.08) 0%, transparent 40%),
+    var(--bg-base);
   background-attachment: fixed;
   overflow-x: hidden;
+  position: relative;
 }
+
+/* 미세한 노이즈/별 텍스처 (양피지+밤하늘 느낌) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(243,199,97,0.35), transparent 50%),
+    radial-gradient(1px 1px at 78% 32%, rgba(255,255,255,0.18), transparent 50%),
+    radial-gradient(1px 1px at 45% 70%, rgba(192,132,252,0.25), transparent 50%),
+    radial-gradient(1px 1px at 88% 82%, rgba(243,199,97,0.22), transparent 50%),
+    radial-gradient(1px 1px at 22% 92%, rgba(255,255,255,0.15), transparent 50%);
+  opacity: 0.6;
+}
+
+#app { position: relative; z-index: 1; }
 
 button {
   font-family: inherit;
@@ -75,10 +114,14 @@ button {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
-  color: white;
+  background:
+    linear-gradient(180deg, #1a0f3a 0%, #0e0925 100%);
+  color: var(--text);
   padding: 14px 16px;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 var(--card-border);
+  border-bottom: 2px solid var(--card-border);
 }
 
 .header-inner {
@@ -119,20 +162,28 @@ button {
 }
 
 .brand-ko {
-  font-size: 22px;
-  font-weight: bold;
+  font-family: 'Nanum Myeongjo', 'Jua', serif;
+  font-size: 24px;
+  font-weight: 800;
   letter-spacing: -0.5px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  background: linear-gradient(180deg, #fde68a 0%, #f3c761 45%, #b8862a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 18px rgba(243, 199, 97, 0.35);
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.4));
 }
 
 .brand-en {
-  font-family: 'Jua', system-ui, sans-serif;
+  font-family: 'Cinzel', serif;
   font-size: 11px;
-  font-weight: bold;
-  letter-spacing: 1.5px;
-  padding: 3px 7px;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  color: var(--gold-light);
+  background: rgba(201, 161, 74, 0.12);
+  border: 1px solid var(--card-border-dim);
+  border-radius: 4px;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -145,19 +196,22 @@ button {
 .icon-btn {
   width: 38px;
   height: 38px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(201,161,74,0.18), rgba(201,161,74,0.05));
+  color: var(--gold-light);
   font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s, background 0.15s;
+  transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+  border: 1px solid var(--card-border-dim);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 .icon-btn:active {
   transform: scale(0.92);
-  background: rgba(255, 255, 255, 0.35);
+  background: linear-gradient(180deg, rgba(201,161,74,0.35), rgba(201,161,74,0.15));
+  box-shadow: var(--glow-gold);
 }
 
 /* ===== 공통 컨테이너 ===== */
@@ -172,10 +226,12 @@ button {
 }
 
 .view-title {
+  font-family: 'Nanum Myeongjo', serif;
   font-size: 22px;
-  font-weight: bold;
+  font-weight: 800;
   margin-bottom: 14px;
-  color: var(--primary-dark);
+  color: var(--gold-light);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 10px rgba(243, 199, 97, 0.25);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -190,7 +246,7 @@ button {
 
 .student-card {
   background: var(--card-bg);
-  border-radius: 18px;
+  border-radius: 14px;
   padding: 14px 10px 12px;
   box-shadow: var(--shadow);
   display: flex;
@@ -200,36 +256,68 @@ button {
   transition: transform 0.15s, box-shadow 0.15s;
   position: relative;
   cursor: pointer;
-  border: 2px solid transparent;
+  border: 2px solid var(--card-border-dim);
+  overflow: hidden;
+}
+
+/* 인벤토리 슬롯 코너 장식 */
+.student-card::before,
+.student-card::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--gold);
+  pointer-events: none;
+  opacity: 0.85;
+}
+.student-card::before {
+  top: 3px; left: 3px;
+  border-right: none;
+  border-bottom: none;
+}
+.student-card::after {
+  bottom: 3px; right: 3px;
+  border-left: none;
+  border-top: none;
 }
 
 .student-card:active {
   transform: scale(0.96);
   box-shadow: var(--shadow-lg);
+  border-color: var(--gold);
 }
 
 .student-card.has-pending {
-  border-color: var(--accent);
+  border-color: var(--gold);
   animation: pulse-border 1.6s infinite;
 }
 
 @keyframes pulse-border {
-  0%, 100% { border-color: var(--accent); box-shadow: var(--shadow); }
-  50% { border-color: var(--accent-2); box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.25); }
+  0%, 100% {
+    border-color: var(--gold);
+    box-shadow: var(--shadow), 0 0 0 0 rgba(243, 199, 97, 0.5);
+  }
+  50% {
+    border-color: var(--accent-2);
+    box-shadow: var(--shadow), 0 0 0 4px rgba(192, 132, 252, 0.35), 0 0 18px rgba(243, 199, 97, 0.6);
+  }
 }
 
 .pending-badge {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  background: linear-gradient(135deg, #fbbf24, #f97316);
-  color: white;
+  top: -2px;
+  right: -2px;
+  background: linear-gradient(180deg, #fde68a, #c9a14a 60%, #7a5e1f);
+  color: #2a1500;
   font-size: 11px;
   padding: 4px 8px;
-  border-radius: 12px;
-  font-weight: bold;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  border-radius: 8px;
+  font-weight: 800;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 12px rgba(243, 199, 97, 0.6);
+  border: 1px solid #7a5e1f;
   animation: bounce 1s infinite;
+  z-index: 2;
 }
 
 @keyframes bounce {
@@ -282,7 +370,8 @@ button {
 .display-name .nickname {
   font-size: 15px;
   font-weight: bold;
-  color: var(--text);
+  color: var(--gold-light);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -310,30 +399,54 @@ button {
 }
 
 .level-pill {
-  background: linear-gradient(135deg, #7c3aed, #a78bfa);
-  color: white;
+  background: linear-gradient(180deg, #2a1a4a, #110a2a);
+  color: var(--gold-light);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: bold;
-  box-shadow: 0 2px 4px rgba(124, 58, 237, 0.25);
+  font-weight: 800;
+  border: 1px solid var(--card-border-dim);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  letter-spacing: 0.5px;
 }
 
 .rank-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 9px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: bold;
-  color: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow:
+    0 2px 6px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.4),
+    inset 0 -1px 0 rgba(0,0,0,0.3);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.4);
+  position: relative;
 }
 
-.rank-bronze { background: linear-gradient(135deg, var(--bronze), var(--bronze-light)); }
-.rank-silver { background: linear-gradient(135deg, #64748b, var(--silver-light)); }
-.rank-gold   { background: linear-gradient(135deg, #f59e0b, var(--gold-light)); color: #78350f; }
+.rank-bronze {
+  background: linear-gradient(180deg, #e8a878 0%, #b87333 50%, #6b3f15 100%);
+  color: #fff5e0;
+  border: 1px solid #6b3f15;
+}
+.rank-silver {
+  background: linear-gradient(180deg, #e6ecf2 0%, #b9c3cd 50%, #5a6772 100%);
+  color: #1a1f28;
+  border: 1px solid #5a6772;
+}
+.rank-gold {
+  background: linear-gradient(180deg, #fde68a 0%, #f3c761 45%, #8a6512 100%);
+  color: #3a2700;
+  border: 1px solid #6b4d10;
+  box-shadow:
+    0 2px 6px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -1px 0 rgba(0,0,0,0.3),
+    0 0 14px rgba(243, 199, 97, 0.5);
+}
 
 .skill-count {
   font-size: 11px;
@@ -342,13 +455,16 @@ button {
   gap: 4px;
   align-items: center;
 }
+.skill-count i { color: var(--gold); }
 
 /* ===== 학생 상세 (화면 2) ===== */
 .detail-hero {
-  background: linear-gradient(135deg, #fff 0%, #fef3c7 100%);
-  border-radius: 22px;
-  padding: 20px 16px 16px;
-  box-shadow: var(--shadow);
+  background:
+    radial-gradient(ellipse at top, rgba(192, 132, 252, 0.18) 0%, transparent 60%),
+    linear-gradient(160deg, #2a2148 0%, #1a1535 50%, #110a2a 100%);
+  border-radius: 16px;
+  padding: 22px 16px 16px;
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -356,17 +472,26 @@ button {
   margin-bottom: 14px;
   position: relative;
   overflow: hidden;
+  border: 2px solid var(--card-border);
 }
 
 .detail-hero::before {
   content: '';
   position: absolute;
-  top: -30%;
-  right: -20%;
-  width: 180px;
-  height: 180px;
-  background: radial-gradient(circle, rgba(251, 191, 36, 0.25) 0%, transparent 70%);
-  border-radius: 50%;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(243, 199, 97, 0.2) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* 인벤토리 코너 장식 (4구석) */
+.detail-hero > .corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--gold);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .detail-name {
@@ -386,9 +511,15 @@ button {
 }
 
 .detail-nickname {
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--primary-dark);
+  font-family: 'Nanum Myeongjo', serif;
+  font-size: 24px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #fde68a 0%, #f3c761 50%, #b8862a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 16px rgba(243, 199, 97, 0.3);
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.5));
   line-height: 1.1;
 }
 
@@ -407,9 +538,10 @@ button {
 .btn-edit-nickname {
   margin-top: 4px;
   padding: 4px 10px;
-  background: rgba(124, 58, 237, 0.1);
-  color: var(--primary);
-  border-radius: 8px;
+  background: rgba(201, 161, 74, 0.12);
+  color: var(--gold-light);
+  border-radius: 6px;
+  border: 1px solid var(--card-border-dim);
   font-size: 11px;
   font-weight: bold;
   display: inline-flex;
@@ -417,7 +549,7 @@ button {
   gap: 4px;
 }
 
-.btn-edit-nickname:active { transform: scale(0.94); background: rgba(124, 58, 237, 0.2); }
+.btn-edit-nickname:active { transform: scale(0.94); background: rgba(201, 161, 74, 0.25); }
 
 /* 아바타 위 편집 아이콘 (상세 헤로 전용) */
 .detail-hero .avatar-lg {
@@ -432,14 +564,15 @@ button {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: white;
+  background: linear-gradient(180deg, #fde68a, #c9a14a);
+  color: #2a1500;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 8px rgba(243, 199, 97, 0.4);
   text-shadow: none;
-  border: 2px solid #f3f4f6;
+  border: 2px solid #7a5e1f;
 }
 
 .detail-badges {
@@ -469,12 +602,18 @@ button {
 
 .heart {
   font-size: 26px;
-  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.12));
-  transition: transform 0.2s;
+  transition: transform 0.2s, filter 0.2s;
 }
 
-.heart.full { color: var(--hp-red); }
-.heart.empty { color: var(--hp-gray); }
+.heart.full {
+  color: var(--hp-red);
+  filter: drop-shadow(0 0 8px rgba(255, 77, 77, 0.7)) drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+}
+.heart.empty {
+  color: var(--hp-gray);
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+  opacity: 0.7;
+}
 
 .heart:active { transform: scale(1.2); }
 
@@ -487,12 +626,12 @@ button {
 .hp-controls button {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
-  background: #fef2f2;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(255,77,77,0.18), rgba(255,77,77,0.05));
   color: var(--hp-red);
   font-weight: bold;
   font-size: 14px;
-  border: 1px solid #fecaca;
+  border: 1px solid rgba(255, 77, 77, 0.4);
 }
 
 .hp-controls button:active { transform: scale(0.9); }
@@ -512,61 +651,95 @@ button {
   font-weight: bold;
 }
 
-.xp-info .xp-current { color: var(--primary); font-size: 14px; }
+.xp-info .xp-current {
+  color: var(--gold-light);
+  font-size: 14px;
+  text-shadow: 0 0 8px rgba(243, 199, 97, 0.5);
+}
 
 .xp-bar-bg {
   width: 100%;
-  height: 14px;
-  background: #e9d5ff;
-  border-radius: 10px;
+  height: 16px;
+  background: linear-gradient(180deg, #0a0518 0%, #1a1030 100%);
+  border-radius: 4px;
   overflow: hidden;
   position: relative;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.08);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.8),
+    0 0 0 1px var(--card-border-dim);
+  border: 1px solid var(--card-border);
 }
 
 .xp-bar-fg {
   height: 100%;
-  background: linear-gradient(90deg, #fbbf24 0%, #f97316 50%, #ec4899 100%);
-  border-radius: 10px;
+  background:
+    linear-gradient(180deg, #fde68a 0%, #f3c761 30%, #c9a14a 70%, #7a5e1f 100%);
+  border-radius: 2px;
   transition: width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
-  box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+  box-shadow:
+    0 0 12px rgba(243, 199, 97, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .xp-bar-fg::after {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(180deg, rgba(255,255,255,0.4), transparent 50%);
-  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.6), transparent 40%, transparent 60%, rgba(0,0,0,0.2));
+  border-radius: 2px;
 }
 
-/* 섹션 카드 */
+/* 마나 흐르는 애니메이션 */
+.xp-bar-fg::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; right: 0; bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  animation: xp-shimmer 2.5s infinite;
+}
+
+@keyframes xp-shimmer {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(200%); }
+}
+
+/* 섹션 카드 (인벤토리 패널) */
 .section-card {
   background: var(--card-bg);
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 14px;
+  padding: 16px 14px 14px;
   box-shadow: var(--shadow);
   margin-bottom: 14px;
+  border: 1.5px solid var(--card-border-dim);
+  position: relative;
 }
 
 .section-title {
+  font-family: 'Nanum Myeongjo', serif;
   font-size: 16px;
-  font-weight: bold;
-  color: var(--primary-dark);
-  margin-bottom: 10px;
+  font-weight: 800;
+  color: var(--gold-light);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border-dim);
   display: flex;
   align-items: center;
   gap: 6px;
+  letter-spacing: 0.3px;
 }
 
 .section-title .count-pill {
-  background: var(--primary);
-  color: white;
+  background: linear-gradient(180deg, #fde68a, #c9a14a);
+  color: #2a1500;
   font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 800;
+  border: 1px solid #7a5e1f;
+  box-shadow: 0 0 8px rgba(243, 199, 97, 0.3);
 }
 
 /* 점수 버튼 그리드 */
@@ -578,65 +751,104 @@ button {
 
 .score-btn {
   padding: 12px 8px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #fff, #f9fafb);
-  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #2a2148 0%, #1a1535 100%);
+  border: 2px solid var(--card-border-dim);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  transition: transform 0.1s, box-shadow 0.1s;
+  transition: transform 0.1s, box-shadow 0.1s, border-color 0.15s;
   position: relative;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
 .score-btn:active {
   transform: scale(0.94);
-  box-shadow: var(--shadow);
+  border-color: var(--gold);
+  box-shadow: var(--glow-gold), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
-.score-btn .emoji { font-size: 26px; }
-.score-btn .label { font-size: 13px; font-weight: bold; color: var(--text); }
+.score-btn .emoji {
+  font-size: 26px;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+}
+.score-btn .label {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--text);
+}
 .score-btn .delta {
   font-size: 12px;
-  font-weight: bold;
+  font-weight: 800;
   padding: 2px 8px;
-  border-radius: 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
 }
 
-.delta-pos { background: #dcfce7; color: #15803d; }
-.delta-neg { background: #fee2e2; color: #b91c1c; }
+.delta-pos {
+  background: linear-gradient(180deg, rgba(74,222,128,0.25), rgba(74,222,128,0.08));
+  color: #86efac;
+  border-color: rgba(74,222,128,0.4);
+  text-shadow: 0 0 6px rgba(74,222,128,0.4);
+}
+.delta-neg {
+  background: linear-gradient(180deg, rgba(255,85,119,0.25), rgba(255,85,119,0.08));
+  color: #fda4af;
+  border-color: rgba(255,85,119,0.4);
+  text-shadow: 0 0 6px rgba(255,85,119,0.4);
+}
 
-.score-btn.positive { border-color: #bbf7d0; }
-.score-btn.positive:active { background: #f0fdf4; }
-.score-btn.negative { border-color: #fecaca; }
-.score-btn.negative:active { background: #fef2f2; }
+.score-btn.positive { border-color: rgba(74,222,128,0.3); }
+.score-btn.positive:active {
+  border-color: #4ade80;
+  box-shadow: 0 0 12px rgba(74,222,128,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.score-btn.negative { border-color: rgba(255,85,119,0.3); }
+.score-btn.negative:active {
+  border-color: #ff5577;
+  box-shadow: 0 0 12px rgba(255,85,119,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+}
 
 /* 스킬 카드 */
 .passive-card {
-  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
-  border: 2px solid #c4b5fd;
-  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(192,132,252,0.18) 0%, rgba(192,132,252,0.05) 100%), linear-gradient(180deg, #2a2148, #1a1535);
+  border: 1.5px solid rgba(192, 132, 252, 0.5);
+  border-radius: 10px;
   padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.15), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
 .passive-icon {
   font-size: 24px;
   width: 40px;
   height: 40px;
-  background: white;
-  border-radius: 10px;
+  background: linear-gradient(180deg, #2a1a4a, #0e0a23);
+  border: 1px solid var(--accent-2);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(192,132,252,0.3);
 }
 
 .passive-info { flex: 1; }
-.passive-label { font-size: 11px; color: #7c3aed; font-weight: bold; }
-.passive-name { font-size: 15px; font-weight: bold; color: var(--text); }
+.passive-label {
+  font-size: 11px;
+  color: #c4b5fd;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.passive-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
 
 .skill-list {
   display: grid;
@@ -645,42 +857,60 @@ button {
 }
 
 .skill-card {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 2px solid #fbbf24;
-  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(243,199,97,0.15) 0%, rgba(243,199,97,0.03) 100%), linear-gradient(180deg, #2a2148, #1a1535);
+  border: 1.5px solid var(--card-border-dim);
+  border-radius: 10px;
   padding: 10px 12px;
   display: flex;
   align-items: center;
   gap: 10px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
 .skill-card .skill-icon {
   font-size: 24px;
   width: 40px;
   height: 40px;
-  background: white;
-  border-radius: 10px;
+  background: linear-gradient(180deg, #2a1a4a, #0e0a23);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(243,199,97,0.3);
 }
 
 .skill-card .skill-info { flex: 1; min-width: 0; }
-.skill-card .skill-name { font-size: 14px; font-weight: bold; color: var(--text); }
-.skill-card .skill-source { font-size: 11px; color: var(--text-light); }
-
-.use-btn {
-  background: linear-gradient(135deg, #f97316, #ef4444);
-  color: white;
-  padding: 8px 14px;
-  border-radius: 10px;
-  font-size: 13px;
+.skill-card .skill-name {
+  font-size: 14px;
   font-weight: bold;
-  box-shadow: 0 3px 6px rgba(239, 68, 68, 0.3);
+  color: var(--gold-light);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+}
+.skill-card .skill-source {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
-.use-btn:active { transform: scale(0.92); }
+.use-btn {
+  background: linear-gradient(180deg, #fde68a 0%, #c9a14a 50%, #7a5e1f 100%);
+  color: #2a1500;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  border: 1px solid #7a5e1f;
+  box-shadow:
+    0 3px 6px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 0 10px rgba(243, 199, 97, 0.35);
+  letter-spacing: 0.5px;
+}
+
+.use-btn:active {
+  transform: scale(0.92);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
+}
 
 .empty-state {
   text-align: center;
@@ -691,31 +921,36 @@ button {
 
 /* 선택 대기 카드 */
 .choice-card {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 3px solid #f59e0b;
-  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at top, rgba(243, 199, 97, 0.25) 0%, transparent 60%),
+    linear-gradient(160deg, #3a2a5e 0%, #2a1a4a 60%, #1a0f3a 100%);
+  border: 2px solid var(--gold);
+  border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.25);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6), 0 0 18px rgba(243, 199, 97, 0.35);
   margin-bottom: 14px;
   animation: glow-pulse 1.8s infinite;
+  position: relative;
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 6px 18px rgba(245, 158, 11, 0.25); }
-  50% { box-shadow: 0 6px 24px rgba(245, 158, 11, 0.55); }
+  0%, 100% { box-shadow: 0 6px 18px rgba(0,0,0,0.6), 0 0 18px rgba(243, 199, 97, 0.35); }
+  50% { box-shadow: 0 6px 24px rgba(0,0,0,0.6), 0 0 28px rgba(243, 199, 97, 0.75); }
 }
 
 .choice-title {
-  font-size: 16px;
-  font-weight: bold;
-  color: #78350f;
+  font-family: 'Nanum Myeongjo', serif;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--gold-light);
+  text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 12px rgba(243, 199, 97, 0.5);
   text-align: center;
   margin-bottom: 4px;
 }
 
 .choice-sub {
   font-size: 12px;
-  color: #92400e;
+  color: var(--text-light);
   text-align: center;
   margin-bottom: 12px;
 }
@@ -727,9 +962,9 @@ button {
 }
 
 .choice-option {
-  background: white;
-  border: 2px solid #fbbf24;
-  border-radius: 14px;
+  background: linear-gradient(180deg, #2a2148, #1a1535);
+  border: 1.5px solid var(--card-border-dim);
+  border-radius: 10px;
   padding: 14px 10px;
   font-weight: bold;
   font-size: 14px;
@@ -738,17 +973,23 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  transition: transform 0.1s;
+  transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
 }
 
-.choice-option:active { transform: scale(0.94); background: #fef3c7; }
+.choice-option:active {
+  transform: scale(0.94);
+  border-color: var(--gold);
+  box-shadow: var(--glow-gold);
+}
 
 .choice-option .opt-label {
-  background: var(--accent);
-  color: white;
+  background: linear-gradient(180deg, #fde68a, #c9a14a);
+  color: #2a1500;
   font-size: 12px;
   padding: 2px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
+  border: 1px solid #7a5e1f;
+  font-weight: 800;
 }
 
 /* ===== 활동 기록 (화면 3) ===== */
@@ -929,15 +1170,18 @@ button {
 }
 
 .toast {
-  background: white;
-  border-radius: 14px;
+  background: linear-gradient(160deg, #2a2148 0%, #1a1535 60%, #110a2a 100%);
+  color: var(--text);
+  border-radius: 10px;
   padding: 12px 16px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06);
   display: flex;
   align-items: center;
   gap: 10px;
+  pointer-events: auto;
   animation: toast-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  border-left: 4px solid var(--primary);
+  border: 1.5px solid var(--card-border);
+  border-left: 4px solid var(--gold);
   font-weight: bold;
 }
 
@@ -946,12 +1190,23 @@ button {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.toast.success { border-color: var(--success); }
-.toast.warning { border-color: var(--warning); }
-.toast.error { border-color: var(--danger); }
+.toast.success {
+  border-left-color: var(--success);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7), 0 0 14px rgba(74,222,128,0.25);
+}
+.toast.warning { border-left-color: var(--warning); }
+.toast.error {
+  border-left-color: var(--danger);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7), 0 0 14px rgba(255,85,119,0.25);
+}
 .toast.level-up {
-  border: 3px solid var(--accent);
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border: 2px solid var(--gold);
+  background:
+    radial-gradient(ellipse at top, rgba(243,199,97,0.3) 0%, transparent 70%),
+    linear-gradient(160deg, #3a2a5e 0%, #2a1a4a 60%, #1a0f3a 100%);
+  color: var(--gold-light);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7), 0 0 20px rgba(243,199,97,0.6);
+  font-family: 'Nanum Myeongjo', serif;
 }
 
 .toast .toast-emoji { font-size: 22px; }
