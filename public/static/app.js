@@ -36,6 +36,45 @@ function getInitial(name) {
   return name.trim().charAt(0)
 }
 
+// 아바타 내용: 이모지가 있으면 이모지, 없으면 이름 첫 글자
+function avatarContent(student) {
+  if (student.avatar_emoji) return student.avatar_emoji
+  return escapeHtml(getInitial(student.name))
+}
+
+// 표시 이름: 닉네임이 있으면 우선, 본명은 작게 함께 노출
+function displayNameHtml(student, opts = {}) {
+  const { size = 'md' } = opts
+  if (student.nickname) {
+    return `
+      <div class="display-name ${size}">
+        <span class="nickname">${escapeHtml(student.nickname)}</span>
+        <span class="real-name">${escapeHtml(student.name)}</span>
+      </div>
+    `
+  }
+  return `<div class="display-name ${size}"><span class="nickname">${escapeHtml(student.name)}</span></div>`
+}
+
+// 아바타 색상 팔레트 & 이모지 팔레트 (꾸미기 모달용)
+const AVATAR_EMOJIS = [
+  '🦊', '🐰', '🦁', '🐼', '🐯', '🐻', '🐨', '🐶',
+  '🐱', '🦄', '🐸', '🐢', '🐧', '🐥', '🦉', '🦋',
+  '🐙', '🦖', '🦕', '🐲', '🦒', '🦘', '🦔', '🐹',
+  '🌸', '🌟', '⚡', '🔥', '🌈', '🍀', '👑', '🎮',
+]
+
+const AVATAR_COLORS = [
+  '#FF6B9D', '#F472B6', '#EC4899', // 핑크 계열
+  '#FB923C', '#F97316', '#EF4444', // 오렌지/레드
+  '#FBBF24', '#FACC15', '#EAB308', // 옐로우
+  '#34D399', '#22C55E', '#10B981', // 그린
+  '#4ECDC4', '#06B6D4', '#0EA5E9', // 시안/블루
+  '#60A5FA', '#3B82F6', '#6366F1', // 블루/인디고
+  '#A78BFA', '#8B5CF6', '#7C3AED', // 퍼플
+  '#94A3B8', '#64748B', '#475569', // 그레이
+]
+
 function rankInfo(rank) {
   if (rank === 'gold') return { label: '골드', icon: '🥇', cls: 'rank-gold' }
   if (rank === 'silver') return { label: '실버', icon: '🥈', cls: 'rank-silver' }
@@ -159,6 +198,143 @@ function showConfirm(title, message, onConfirm) {
   }
 }
 
+// 닉네임 편집 모달
+function showNicknameEditor(student) {
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">✏️ ${student.nickname ? '닉네임 수정' : '닉네임 정하기'}</div>
+        <div style="text-align:center; color:var(--text-light); font-size:13px; margin-bottom:8px;">
+          ${escapeHtml(student.name)} 학생의 닉네임을 입력해주세요.
+        </div>
+        <input type="text" id="nickname-input" maxlength="20" placeholder="예: 민달팽이"
+          value="${escapeHtml(student.nickname || '')}"
+          style="width:100%; padding:12px; border:2px solid #e5e7eb; border-radius:12px; font-family:inherit; font-size:16px; text-align:center;" />
+        <div style="font-size:11px; color:var(--text-light); text-align:center; margin-top:8px;">
+          ※ 비워두면 닉네임을 지웁니다.
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+          <button class="btn-confirm" id="modal-confirm">저장</button>
+        </div>
+      </div>
+    </div>
+  `
+  const input = document.getElementById('nickname-input')
+  setTimeout(() => { input.focus(); input.select() }, 50)
+
+  document.getElementById('modal-cancel').onclick = () => container.innerHTML = ''
+  document.getElementById('modal-confirm').onclick = async () => {
+    const nickname = input.value.trim()
+    try {
+      await api(`/api/students/${student.id}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify({ nickname: nickname || null }),
+      })
+      container.innerHTML = ''
+      showToast(nickname ? `닉네임: ${nickname}` : '닉네임을 지웠어요', 'success', '✏️')
+      await renderDetail(student.id)
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
+}
+
+// 아바타 꾸미기 모달 (이모지 + 색상 팔레트)
+function showAvatarPicker(student) {
+  const container = document.getElementById('modal-container')
+  let pickedEmoji = student.avatar_emoji || ''
+  let pickedColor = student.avatar_color || AVATAR_COLORS[0]
+
+  function previewHtml() {
+    return `
+      <div class="avatar avatar-lg ${pickedEmoji ? 'avatar-emoji' : ''}"
+           id="avatar-preview"
+           style="background: linear-gradient(135deg, ${pickedColor}, ${pickedColor}cc);">
+        ${pickedEmoji ? pickedEmoji : escapeHtml(getInitial(student.name))}
+      </div>
+    `
+  }
+
+  function emojiGridHtml() {
+    return AVATAR_EMOJIS.map(em => `
+      <button class="emoji-pick ${em === pickedEmoji ? 'active' : ''}" data-emoji="${em}">${em}</button>
+    `).join('')
+  }
+
+  function colorGridHtml() {
+    return AVATAR_COLORS.map(col => `
+      <button class="color-pick ${col === pickedColor ? 'active' : ''}" data-color="${col}"
+        style="background: linear-gradient(135deg, ${col}, ${col}cc);"></button>
+    `).join('')
+  }
+
+  function render() {
+    container.innerHTML = `
+      <div class="modal-backdrop">
+        <div class="modal modal-wide">
+          <div class="modal-title">🎨 아바타 꾸미기</div>
+          <div class="avatar-preview-wrap">${previewHtml()}</div>
+
+          <div class="picker-section">
+            <div class="picker-label">캐릭터</div>
+            <div class="emoji-grid">
+              <button class="emoji-pick ${!pickedEmoji ? 'active' : ''}" data-emoji="">
+                <span style="font-size:14px; color:var(--text-light);">없음</span>
+              </button>
+              ${emojiGridHtml()}
+            </div>
+          </div>
+
+          <div class="picker-section">
+            <div class="picker-label">배경 색</div>
+            <div class="color-grid">${colorGridHtml()}</div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-cancel" id="modal-cancel">취소</button>
+            <button class="btn-confirm" id="modal-confirm">저장</button>
+          </div>
+        </div>
+      </div>
+    `
+
+    container.querySelectorAll('.emoji-pick').forEach(btn => {
+      btn.onclick = () => {
+        pickedEmoji = btn.dataset.emoji
+        render()
+      }
+    })
+    container.querySelectorAll('.color-pick').forEach(btn => {
+      btn.onclick = () => {
+        pickedColor = btn.dataset.color
+        render()
+      }
+    })
+
+    document.getElementById('modal-cancel').onclick = () => container.innerHTML = ''
+    document.getElementById('modal-confirm').onclick = async () => {
+      try {
+        await api(`/api/students/${student.id}/profile`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            avatar_emoji: pickedEmoji || null,
+            avatar_color: pickedColor,
+          }),
+        })
+        container.innerHTML = ''
+        showToast('아바타가 바뀌었어요!', 'success', '🎨')
+        await renderDetail(student.id)
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    }
+  }
+
+  render()
+}
+
 // 특별 점수 부여: 점수 + 사유 직접 입력
 function showCustomScorePrompt(studentId, baseName) {
   const container = document.getElementById('modal-container')
@@ -267,10 +443,10 @@ async function renderList() {
     return `
       <div class="student-card ${pending ? 'has-pending' : ''}" data-id="${s.id}">
         ${pending ? `<div class="pending-badge">선택!</div>` : ''}
-        <div class="avatar" style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);">
-          ${escapeHtml(getInitial(s.name))}
+        <div class="avatar ${s.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);">
+          ${avatarContent(s)}
         </div>
-        <div class="student-name">${escapeHtml(s.name)}</div>
+        ${displayNameHtml(s, { size: 'sm' })}
         <div class="level-row">
           <span class="level-pill">Lv.${s.level}</span>
           <span class="rank-badge ${rank.cls}">${rank.icon} ${rank.label}</span>
@@ -390,10 +566,24 @@ async function renderDetail(id) {
     <div class="view-container">
       <!-- 캐릭터 헤로 -->
       <div class="detail-hero">
-        <div class="avatar avatar-lg" style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);">
-          ${escapeHtml(getInitial(s.name))}
+        <button class="avatar avatar-lg ${s.avatar_emoji ? 'avatar-emoji' : ''}"
+                id="avatar-edit-btn"
+                style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);"
+                title="아바타 꾸미기">
+          ${avatarContent(s)}
+          <span class="avatar-edit-icon">✏️</span>
+        </button>
+        <div class="detail-name-wrap">
+          ${s.nickname
+            ? `<div class="detail-nickname">${escapeHtml(s.nickname)}</div>
+               <div class="detail-realname">${escapeHtml(s.name)}</div>`
+            : `<div class="detail-nickname">${escapeHtml(s.name)}</div>
+               <div class="detail-realname-empty">닉네임 없음</div>`
+          }
+          <button class="btn-edit-nickname" id="nickname-edit-btn">
+            <i class="fa-solid fa-pen"></i> ${s.nickname ? '닉네임 수정' : '닉네임 정하기'}
+          </button>
         </div>
-        <div class="detail-name">${escapeHtml(s.name)}</div>
         <div class="detail-badges">
           <span class="level-pill" style="font-size:14px; padding:4px 12px;">Lv.${s.level}</span>
           <span class="rank-badge ${rank.cls}" style="font-size:14px; padding:4px 12px;">${rank.icon} ${rank.label}</span>
@@ -453,6 +643,9 @@ async function renderDetail(id) {
   `
 
   // 이벤트 바인딩
+  document.getElementById('avatar-edit-btn').onclick = () => showAvatarPicker(s)
+  document.getElementById('nickname-edit-btn').onclick = () => showNicknameEditor(s)
+
   main.querySelectorAll('.score-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.custom === '1') {
@@ -587,15 +780,16 @@ async function renderLogs() {
       deltaHtml = `<span class="log-delta" style="background:#ede9fe;color:#6d28d9;">선택</span>`
     }
 
+    const displayName = l.student_nickname || l.student_name
     return `
       <div class="log-item">
-        <div class="log-avatar" style="background: linear-gradient(135deg, ${l.avatar_color}, ${l.avatar_color}cc);">
-          ${escapeHtml(getInitial(l.student_name))}
+        <div class="log-avatar ${l.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${l.avatar_color}, ${l.avatar_color}cc);">
+          ${l.avatar_emoji ? l.avatar_emoji : escapeHtml(getInitial(l.student_name))}
         </div>
         <div class="log-content">
           <div class="log-line1">
             <span class="log-type-icon">${activityEmoji(l.activity_name)}</span>
-            <span class="log-name">${escapeHtml(l.student_name)}</span>
+            <span class="log-name">${escapeHtml(displayName)}</span>
             <span class="log-activity">${escapeHtml(l.activity_name)}</span>
           </div>
           <div class="log-time">${formatTime(l.created_at)}</div>

@@ -15,7 +15,9 @@ export interface StudentRow {
   id: number
   class_id: number
   name: string
+  nickname: string | null
   avatar_color: string
+  avatar_emoji: string | null
   xp: number
   hp: number
   max_hp: number

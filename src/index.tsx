@@ -149,6 +149,37 @@ app.get('/api/students/:id', async (c) => {
   })
 })
 
+// ----- 학생 프로필 수정 (닉네임, 아바타 이모지·색상) -----
+app.put('/api/students/:id/profile', async (c) => {
+  const id = Number(c.req.param('id'))
+  const body = await c.req.json<{
+    nickname?: string | null
+    avatar_emoji?: string | null
+    avatar_color?: string
+  }>()
+
+  const student = await c.env.DB.prepare(
+    `SELECT * FROM students WHERE id = ?`
+  ).bind(id).first<StudentRow>()
+  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
+
+  const nickname = body.nickname !== undefined
+    ? (body.nickname ? body.nickname.trim() || null : null)
+    : student.nickname
+  const avatar_emoji = body.avatar_emoji !== undefined
+    ? (body.avatar_emoji || null)
+    : student.avatar_emoji
+  const avatar_color = body.avatar_color !== undefined
+    ? (body.avatar_color || student.avatar_color)
+    : student.avatar_color
+
+  await c.env.DB.prepare(
+    `UPDATE students SET nickname = ?, avatar_emoji = ?, avatar_color = ? WHERE id = ?`
+  ).bind(nickname, avatar_emoji, avatar_color, id).run()
+
+  return c.json({ success: true, nickname, avatar_emoji, avatar_color })
+})
+
 // ----- 점수 부여 -----
 app.post('/api/students/:id/score', async (c) => {
   const id = Number(c.req.param('id'))
@@ -309,7 +340,8 @@ app.get('/api/classes/:classId/logs', async (c) => {
   const limit = Number(c.req.query('limit') || 200)
 
   const { results } = await c.env.DB.prepare(
-    `SELECT al.*, s.name as student_name, s.avatar_color
+    `SELECT al.*, s.name as student_name, s.nickname as student_nickname,
+            s.avatar_color, s.avatar_emoji
      FROM activity_logs al
      JOIN students s ON s.id = al.student_id
      WHERE al.class_id = ?

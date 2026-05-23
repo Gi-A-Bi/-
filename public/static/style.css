@@ -249,6 +249,13 @@ button {
   font-weight: bold;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  position: relative;
+}
+
+/* 이모지 아바타는 텍스트 그림자 제거 + 살짝 큰 폰트 */
+.avatar.avatar-emoji {
+  text-shadow: none;
+  font-size: 32px;
 }
 
 .avatar-lg {
@@ -257,12 +264,42 @@ button {
   font-size: 34px;
 }
 
-.student-name {
+.avatar-lg.avatar-emoji {
+  font-size: 48px;
+}
+
+/* 닉네임/본명 표시 */
+.display-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.display-name .nickname {
   font-size: 15px;
   font-weight: bold;
   color: var(--text);
-  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
+
+.display-name .real-name {
+  font-size: 11px;
+  color: var(--text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.display-name.sm .nickname { font-size: 14px; }
+.display-name.sm .real-name { font-size: 10px; }
 
 .level-row {
   display: flex;
@@ -337,6 +374,72 @@ button {
   font-weight: bold;
   color: var(--primary-dark);
   z-index: 1;
+}
+
+/* 상세 화면 닉네임/본명 영역 */
+.detail-name-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 1;
+}
+
+.detail-nickname {
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--primary-dark);
+  line-height: 1.1;
+}
+
+.detail-realname {
+  font-size: 13px;
+  color: var(--text-light);
+  font-weight: bold;
+}
+
+.detail-realname-empty {
+  font-size: 12px;
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.btn-edit-nickname {
+  margin-top: 4px;
+  padding: 4px 10px;
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--primary);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-edit-nickname:active { transform: scale(0.94); background: rgba(124, 58, 237, 0.2); }
+
+/* 아바타 위 편집 아이콘 (상세 헤로 전용) */
+.detail-hero .avatar-lg {
+  border: none;
+  cursor: pointer;
+}
+
+.avatar-edit-icon {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  text-shadow: none;
+  border: 2px solid #f3f4f6;
 }
 
 .detail-badges {
@@ -901,6 +1004,79 @@ button {
 
 .modal-actions .btn-cancel { background: #f3f4f6; color: var(--text); }
 .modal-actions .btn-confirm { background: var(--primary); color: white; }
+
+/* 와이드 모달 (아바타 꾸미기) */
+.modal-wide {
+  max-width: 380px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.avatar-preview-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 14px;
+}
+
+.picker-section {
+  margin-bottom: 14px;
+}
+
+.picker-label {
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--text-light);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.emoji-pick {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  background: #f9fafb;
+  border: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  transition: transform 0.1s, border-color 0.1s;
+}
+
+.emoji-pick:active { transform: scale(0.9); }
+.emoji-pick.active {
+  border-color: var(--primary);
+  background: #f5f3ff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+
+.color-pick {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.color-pick:active { transform: scale(0.85); }
+.color-pick.active {
+  border-color: var(--text);
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px white, 0 0 0 4px var(--primary);
+}
 
 /* ===== 헤더 뒤로가기 화살표 ===== */
 .back-arrow {
