@@ -9,6 +9,8 @@ const state = {
   currentStudentId: null,
   students: [],
   levelTable: [],
+  activities: [], // 점수 부여 활동 목록 (DB)
+  settingsTab: 'activities', // 'activities' | 'skills'
 }
 
 // ==============================
@@ -157,6 +159,49 @@ function showConfirm(title, message, onConfirm) {
   }
 }
 
+// 특별 점수 부여: 점수 + 사유 직접 입력
+function showCustomScorePrompt(studentId, baseName) {
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">✨ 특별 점수 부여</div>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          <div>
+            <label style="font-size:12px; color:var(--text-light); font-weight:bold;">사유 (활동명)</label>
+            <input type="text" id="custom-name" placeholder="예: 학급 회의 사회"
+              style="width:100%; padding:10px; border:2px solid #e5e7eb; border-radius:10px; font-family:inherit; font-size:14px; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:12px; color:var(--text-light); font-weight:bold;">점수 (음수면 차감)</label>
+            <input type="number" id="custom-delta" placeholder="예: 15 또는 -5" value="10"
+              style="width:100%; padding:10px; border:2px solid #e5e7eb; border-radius:10px; font-family:inherit; font-size:14px; margin-top:4px;" />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+          <button class="btn-confirm" id="modal-confirm">부여하기</button>
+        </div>
+      </div>
+    </div>
+  `
+  const nameInput = document.getElementById('custom-name')
+  const deltaInput = document.getElementById('custom-delta')
+  setTimeout(() => nameInput.focus(), 50)
+
+  document.getElementById('modal-cancel').onclick = () => container.innerHTML = ''
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = nameInput.value.trim() || '특별 점수'
+    const delta = Number(deltaInput.value) || 0
+    if (delta === 0) {
+      showToast('점수를 입력해주세요', 'warning')
+      return
+    }
+    container.innerHTML = ''
+    addScore(studentId, name, delta)
+  }
+}
+
 // ==============================
 // 헤더 갱신
 // ==============================
@@ -258,17 +303,13 @@ async function renderList() {
 // ==============================
 // 화면 2: 학생 상세
 // ==============================
-const SCORE_BUTTONS = [
-  { name: '숙제 제출', delta: 20, emoji: '📝', type: 'positive' },
-  { name: '출석 체크', delta: 10, emoji: '✅', type: 'positive' },
-  { name: '아침 독서', delta: 10, emoji: '📚', type: 'positive' },
-  { name: '친구 돕기', delta: 20, emoji: '🤝', type: 'positive' },
-  { name: '폭풍 칭찬', delta: 30, emoji: '🌟', type: 'positive' },
-  { name: '벌점', delta: -10, emoji: '⚠️', type: 'negative' },
-]
-
 async function renderDetail(id) {
-  const s = await api(`/api/students/${id}`)
+  // 학생 데이터와 활동 목록을 병렬로 로드 (활동은 캐시)
+  const [s, activities] = await Promise.all([
+    api(`/api/students/${id}`),
+    state.activities.length ? Promise.resolve(state.activities) : api(`/api/classes/${state.classId}/activities`),
+  ])
+  state.activities = activities
   const rank = rankInfo(s.rank)
 
   // XP 진행률 계산
@@ -290,20 +331,33 @@ async function renderDetail(id) {
     hearts.push(`<span class="heart ${full ? 'full' : 'empty'}">${full ? '❤️' : '🩶'}</span>`)
   }
 
-  // 점수 버튼
-  const scoreBtns = SCORE_BUTTONS.map(b => `
-    <button class="score-btn ${b.type}" data-name="${escapeHtml(b.name)}" data-delta="${b.delta}">
-      <div class="emoji">${b.emoji}</div>
-      <div class="label">${b.name}</div>
-      <div class="delta ${b.delta >= 0 ? 'delta-pos' : 'delta-neg'}">${b.delta >= 0 ? '+' : ''}${b.delta} XP</div>
-    </button>
-  `).join('')
+  // 점수 버튼 (DB의 activities에서 로드)
+  const scoreBtns = activities.map(a => {
+    if (a.is_custom_input) {
+      // 특별 점수 부여: 교사가 직접 점수 입력
+      return `
+        <button class="score-btn custom" data-activity-id="${a.id}" data-custom="1" data-name="${escapeHtml(a.name)}">
+          <div class="emoji">${a.emoji || '✨'}</div>
+          <div class="label">${escapeHtml(a.name)}</div>
+          <div class="delta" style="background:#ede9fe;color:#6d28d9;">직접 입력</div>
+        </button>
+      `
+    }
+    const type = a.score_delta >= 0 ? 'positive' : 'negative'
+    return `
+      <button class="score-btn ${type}" data-activity-id="${a.id}" data-name="${escapeHtml(a.name)}" data-delta="${a.score_delta}">
+        <div class="emoji">${a.emoji || '⭐'}</div>
+        <div class="label">${escapeHtml(a.name)}</div>
+        <div class="delta ${a.score_delta >= 0 ? 'delta-pos' : 'delta-neg'}">${a.score_delta >= 0 ? '+' : ''}${a.score_delta} XP</div>
+      </button>
+    `
+  }).join('')
 
   // 선택 대기
   const choices = s.pending_choices.map(pc => `
     <div class="choice-card">
       <div class="choice-title">🎁 Lv.${pc.level} 보상 선택</div>
-      <div class="choice-sub">아래 두 보상 중 하나를 골라주세요</div>
+      <div class="choice-sub">${escapeHtml(pc.reward_desc || '아래 두 보상 중 하나를 골라주세요')}</div>
       <div class="choice-options">
         <button class="choice-option" data-choice-id="${pc.id}" data-pick="A">
           <span class="opt-label">A</span>
@@ -400,7 +454,13 @@ async function renderDetail(id) {
 
   // 이벤트 바인딩
   main.querySelectorAll('.score-btn').forEach(btn => {
-    btn.addEventListener('click', () => addScore(id, btn.dataset.name, Number(btn.dataset.delta)))
+    btn.addEventListener('click', () => {
+      if (btn.dataset.custom === '1') {
+        showCustomScorePrompt(id, btn.dataset.name)
+      } else {
+        addScore(id, btn.dataset.name, Number(btn.dataset.delta))
+      }
+    })
   })
 
   document.getElementById('hp-minus').onclick = () => adjustHp(id, -1)
@@ -557,117 +617,105 @@ async function renderLogs() {
 }
 
 // ==============================
-// 화면 4: 설정 (레벨표 편집)
+// 화면 4: 설정 (활동 점수 / 스킬 내용만 편집)
+// 게임 뼈대(레벨별 기준 XP, 등급 구간, HP 규칙)는 고정.
 // ==============================
 async function renderSettings() {
-  const levels = await api(`/api/classes/${state.classId}/level-table`)
-  state.levelTable = levels
-
   const main = document.getElementById('main-view')
-
-  const rows = levels.map(lv => `
-    <div class="level-edit-item" data-level="${lv.level}">
-      <div class="level-edit-num">
-        Lv<div class="lv-big">${lv.level}</div>
-      </div>
-      <div class="level-edit-body">
-        <div class="level-edit-row">
-          <label>필요 XP</label>
-          <input type="number" class="f-xp" value="${lv.required_xp}" />
-          <select class="f-rank">
-            <option value="bronze" ${lv.rank === 'bronze' ? 'selected' : ''}>🥉 브론즈</option>
-            <option value="silver" ${lv.rank === 'silver' ? 'selected' : ''}>🥈 실버</option>
-            <option value="gold" ${lv.rank === 'gold' ? 'selected' : ''}>🥇 골드</option>
-          </select>
-        </div>
-        <div class="level-edit-row">
-          <label>해금 스킬</label>
-          <input type="text" class="f-unlock" value="${escapeHtml(lv.unlock_skill || '')}" placeholder="예: 칭찬 도장" />
-        </div>
-        <div class="level-edit-row">
-          <label>패시브</label>
-          <input type="text" class="f-passive" value="${escapeHtml(lv.passive_skill || '')}" placeholder="예: 발표 우선권" />
-        </div>
-        <div class="level-edit-row">
-          <label class="checkbox-wrap">
-            <input type="checkbox" class="f-choice" ${lv.is_choice ? 'checked' : ''} />
-            <span>선택형 보상</span>
-          </label>
-        </div>
-        <div class="level-edit-row choice-only" style="${lv.is_choice ? '' : 'display:none;'}">
-          <label>선택 A</label>
-          <input type="text" class="f-choice-a" value="${escapeHtml(lv.choice_a || '')}" />
-        </div>
-        <div class="level-edit-row choice-only" style="${lv.is_choice ? '' : 'display:none;'}">
-          <label>선택 B</label>
-          <input type="text" class="f-choice-b" value="${escapeHtml(lv.choice_b || '')}" />
-        </div>
-        <div class="level-edit-actions">
-          <button class="btn-mini primary save-btn">💾 저장</button>
-          <button class="btn-mini danger delete-btn">🗑 삭제</button>
-        </div>
-      </div>
-    </div>
-  `).join('')
 
   main.innerHTML = `
     <div class="view-container">
-      <div class="view-title"><span>⚙️</span> 레벨표 편집</div>
-      <div class="hint-text" style="background:#ede9fe;border-radius:12px;margin-bottom:10px;padding:10px;color:#5b21b6;">
-        💡 레벨업 시 자동으로 패시브가 적용되고 해금 스킬이 학생에게 지급됩니다.<br/>
-        선택형 체크 시 A/B 두 보상 중 학생이 직접 선택합니다.
+      <div class="view-title"><span>⚙️</span> 교사 설정</div>
+
+      <div class="settings-tabs">
+        <button class="settings-tab ${state.settingsTab === 'activities' ? 'active' : ''}" data-tab="activities">
+          ⚡ 활동 점수
+        </button>
+        <button class="settings-tab ${state.settingsTab === 'skills' ? 'active' : ''}" data-tab="skills">
+          🎁 스킬 내용
+        </button>
       </div>
-      <div class="level-edit-list">${rows}</div>
-      <button class="btn-add-level" id="add-level">＋ 새 레벨 추가</button>
+
+      <div class="hint-text" style="background:#ede9fe;border-radius:12px;margin-bottom:10px;padding:10px;color:#5b21b6;text-align:left;line-height:1.5;">
+        💡 게임 뼈대(레벨별 기준 XP, 등급 구간, HP 규칙)는 고정입니다.<br/>
+        설정에서 수정 가능한 것은 ① 활동별 점수와 ② 스킬 이름·보상 설명 두 가지입니다.
+      </div>
+
+      <div id="settings-body"></div>
     </div>
   `
 
-  // 체크박스 토글
-  main.querySelectorAll('.f-choice').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const item = cb.closest('.level-edit-item')
-      item.querySelectorAll('.choice-only').forEach(row => {
-        row.style.display = cb.checked ? '' : 'none'
-      })
-    })
-  })
-
-  // 저장
-  main.querySelectorAll('.save-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const item = btn.closest('.level-edit-item')
-      const level = Number(item.dataset.level)
-      const body = {
-        required_xp: Number(item.querySelector('.f-xp').value) || 0,
-        rank: item.querySelector('.f-rank').value,
-        unlock_skill: item.querySelector('.f-unlock').value.trim() || null,
-        passive_skill: item.querySelector('.f-passive').value.trim() || null,
-        is_choice: item.querySelector('.f-choice').checked ? 1 : 0,
-        choice_a: item.querySelector('.f-choice-a').value.trim() || null,
-        choice_b: item.querySelector('.f-choice-b').value.trim() || null,
-      }
-      try {
-        await api(`/api/classes/${state.classId}/level-table/${level}`, {
-          method: 'PUT',
-          body: JSON.stringify(body),
-        })
-        showToast(`Lv.${level} 저장 완료`, 'success', '💾')
-      } catch (e) {
-        showToast(e.message, 'error')
-      }
-    })
-  })
-
-  // 삭제
-  main.querySelectorAll('.delete-btn').forEach(btn => {
+  // 탭 전환
+  main.querySelectorAll('.settings-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      const item = btn.closest('.level-edit-item')
-      const level = Number(item.dataset.level)
-      showConfirm(`Lv.${level} 삭제`, '이 레벨 행을 삭제할까요?', async () => {
+      state.settingsTab = btn.dataset.tab
+      renderSettings()
+    })
+  })
+
+  if (state.settingsTab === 'activities') {
+    await renderActivitiesSettings()
+  } else {
+    await renderSkillsSettings()
+  }
+}
+
+// ----- 활동 점수 편집 -----
+async function renderActivitiesSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  const activities = await api(`/api/classes/${state.classId}/activities`)
+  state.activities = activities
+
+  const rows = activities.map(a => `
+    <div class="activity-edit-item ${a.is_custom_input ? 'custom' : ''}" data-id="${a.id}">
+      <input type="text" class="f-emoji" value="${escapeHtml(a.emoji || '⭐')}" maxlength="3" />
+      <input type="text" class="f-name" value="${escapeHtml(a.name)}" placeholder="활동명" />
+      ${a.is_custom_input
+        ? `<div class="custom-badge">직접 입력</div>`
+        : `<input type="number" class="f-delta" value="${a.score_delta}" placeholder="점수" />`
+      }
+      ${a.is_custom_input
+        ? `<button class="btn-mini" disabled style="opacity:0.4;cursor:not-allowed;">🗑</button>`
+        : `<button class="btn-mini danger delete-act-btn">🗑</button>`
+      }
+    </div>
+  `).join('')
+
+  body.innerHTML = `
+    <div class="activity-edit-list">${rows}</div>
+    <button class="btn-add-level" id="add-activity">＋ 새 활동 추가</button>
+    <div class="hint-text" style="margin-top:8px;">
+      입력 후 다른 곳을 누르면 자동 저장됩니다. (점수는 음수도 가능)
+    </div>
+  `
+
+  // 자동 저장 (blur 시)
+  body.querySelectorAll('.activity-edit-item').forEach(item => {
+    const id = Number(item.dataset.id)
+    const inputs = item.querySelectorAll('input')
+    inputs.forEach(inp => {
+      inp.addEventListener('blur', async () => {
+        const name = item.querySelector('.f-name').value.trim()
+        const emoji = item.querySelector('.f-emoji').value.trim() || '⭐'
+        const deltaEl = item.querySelector('.f-delta')
+        const body = { name, emoji }
+        if (deltaEl) body.score_delta = Number(deltaEl.value) || 0
+        if (!name) {
+          showToast('활동명을 입력해주세요', 'warning')
+          return
+        }
         try {
-          await api(`/api/classes/${state.classId}/level-table/${level}`, { method: 'DELETE' })
-          showToast(`Lv.${level} 삭제됨`, 'success', '🗑')
-          await renderSettings()
+          await api(`/api/activities/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          })
+          state.activities = [] // 캐시 무효화
+          // 잔잔한 저장 피드백
+          item.style.transition = 'background 0.3s'
+          item.style.background = '#dcfce7'
+          setTimeout(() => item.style.background = '', 600)
         } catch (e) {
           showToast(e.message, 'error')
         }
@@ -675,30 +723,149 @@ async function renderSettings() {
     })
   })
 
-  // 새 레벨 추가
-  document.getElementById('add-level').onclick = async () => {
-    const maxLv = levels.length > 0 ? Math.max(...levels.map(l => l.level)) : 0
-    const newLv = maxLv + 1
-    const lastXp = levels.length > 0 ? Math.max(...levels.map(l => l.required_xp)) : 0
+  // 삭제
+  body.querySelectorAll('.delete-act-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.activity-edit-item')
+      const id = Number(item.dataset.id)
+      const name = item.querySelector('.f-name').value
+      showConfirm(`'${name}' 활동 삭제`, '이 활동 버튼을 삭제할까요?', async () => {
+        try {
+          await api(`/api/activities/${id}`, { method: 'DELETE' })
+          state.activities = []
+          showToast('삭제됨', 'success', '🗑')
+          await renderActivitiesSettings()
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      })
+    })
+  })
+
+  // 추가
+  document.getElementById('add-activity').onclick = async () => {
     try {
-      await api(`/api/classes/${state.classId}/level-table/${newLv}`, {
-        method: 'PUT',
+      await api(`/api/classes/${state.classId}/activities`, {
+        method: 'POST',
         body: JSON.stringify({
-          required_xp: lastXp + 300,
-          rank: newLv >= 10 ? 'gold' : newLv >= 5 ? 'silver' : 'bronze',
-          unlock_skill: '',
-          passive_skill: '',
-          is_choice: 0,
-          choice_a: null,
-          choice_b: null,
+          name: '새 활동',
+          score_delta: 10,
+          emoji: '⭐',
         }),
       })
-      showToast(`Lv.${newLv} 추가됨`, 'success', '➕')
-      await renderSettings()
+      state.activities = []
+      showToast('활동 추가됨', 'success', '➕')
+      await renderActivitiesSettings()
     } catch (e) {
       showToast(e.message, 'error')
     }
   }
+}
+
+// ----- 스킬 내용 편집 -----
+// 레벨/XP/등급/선택형 여부 구조는 고정. 스킬 이름·보상 설명·선택지 텍스트만 수정 가능.
+async function renderSkillsSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  const levels = await api(`/api/classes/${state.classId}/level-table`)
+  state.levelTable = levels
+
+  // 해금 스킬이 있거나 선택형인 레벨만 편집 대상으로 표시
+  const editableLevels = levels.filter(lv => lv.unlock_skill || lv.is_choice)
+
+  const rows = editableLevels.map(lv => {
+    const rank = lv.rank
+    const rankBadge = rank === 'gold' ? '🥇' : rank === 'silver' ? '🥈' : '🥉'
+
+    if (lv.is_choice) {
+      return `
+        <div class="skill-edit-item choice" data-level="${lv.level}">
+          <div class="skill-edit-head">
+            <span class="level-pill">Lv.${lv.level}</span>
+            <span class="rank-badge rank-${rank}">${rankBadge} ${rank === 'gold' ? '골드' : rank === 'silver' ? '실버' : '브론즈'}</span>
+            <span class="choice-tag">A/B 선택형</span>
+          </div>
+          <div class="skill-edit-row">
+            <label>선택 A</label>
+            <input type="text" class="f-choice-a" value="${escapeHtml(lv.choice_a || '')}" placeholder="예: 숙제 반값 할인권" />
+          </div>
+          <div class="skill-edit-row">
+            <label>선택 B</label>
+            <input type="text" class="f-choice-b" value="${escapeHtml(lv.choice_b || '')}" placeholder="예: 1일 자유석 이용권" />
+          </div>
+          <div class="skill-edit-row">
+            <label>보상 설명</label>
+            <input type="text" class="f-desc" value="${escapeHtml(lv.reward_desc || '')}" placeholder="둘 중 하나를 직접 선택" />
+          </div>
+        </div>
+      `
+    } else {
+      return `
+        <div class="skill-edit-item" data-level="${lv.level}">
+          <div class="skill-edit-head">
+            <span class="level-pill">Lv.${lv.level}</span>
+            <span class="rank-badge rank-${rank}">${rankBadge} ${rank === 'gold' ? '골드' : rank === 'silver' ? '실버' : '브론즈'}</span>
+            <span class="unlock-tag">자동 해금</span>
+          </div>
+          <div class="skill-edit-row">
+            <label>스킬명</label>
+            <input type="text" class="f-name" value="${escapeHtml(lv.unlock_skill || '')}" placeholder="예: 미니펫" />
+          </div>
+          <div class="skill-edit-row">
+            <label>보상 설명</label>
+            <input type="text" class="f-desc" value="${escapeHtml(lv.reward_desc || '')}" placeholder="예: 책상에 인형 1개 전시 허용" />
+          </div>
+        </div>
+      `
+    }
+  }).join('')
+
+  body.innerHTML = `
+    <div class="hint-text" style="background:#fef3c7;border-radius:12px;margin-bottom:10px;padding:10px;color:#92400e;text-align:left;line-height:1.5;">
+      🔒 <b>구조 고정</b>: 몇 레벨에 스킬이 해금되는지는 바꿀 수 없습니다.<br/>
+      ✏️ <b>편집 가능</b>: 그 자리의 스킬 이름과 보상 설명만 자유롭게 수정·변경 가능합니다.
+    </div>
+    <div class="skill-edit-list">${rows}</div>
+    <div class="hint-text" style="margin-top:8px;">
+      입력 후 다른 곳을 누르면 자동 저장됩니다.
+    </div>
+  `
+
+  // 자동 저장
+  body.querySelectorAll('.skill-edit-item').forEach(item => {
+    const level = Number(item.dataset.level)
+    const isChoice = item.classList.contains('choice')
+    const inputs = item.querySelectorAll('input')
+    inputs.forEach(inp => {
+      inp.addEventListener('blur', async () => {
+        const reward_desc = item.querySelector('.f-desc').value.trim()
+        const body = { reward_desc }
+        if (isChoice) {
+          body.choice_a = item.querySelector('.f-choice-a').value.trim()
+          body.choice_b = item.querySelector('.f-choice-b').value.trim()
+        } else {
+          const name = item.querySelector('.f-name').value.trim()
+          if (!name) {
+            showToast('스킬명을 입력해주세요', 'warning')
+            return
+          }
+          body.unlock_skill = name
+        }
+        try {
+          await api(`/api/classes/${state.classId}/level-table/${level}/skill`, {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          })
+          item.style.transition = 'background 0.3s'
+          item.style.background = '#dcfce7'
+          setTimeout(() => item.style.background = '', 600)
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      })
+    })
+  })
 }
 
 // ==============================

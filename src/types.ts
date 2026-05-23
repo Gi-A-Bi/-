@@ -33,6 +33,17 @@ export interface LevelRow {
   is_choice: number
   choice_a: string | null
   choice_b: string | null
+  reward_desc: string | null
+}
+
+export interface ActivityRow {
+  id: number
+  class_id: number
+  name: string
+  score_delta: number
+  emoji: string | null
+  is_custom_input: number
+  sort_order: number
 }
 
 export interface StudentSkillRow {

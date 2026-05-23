@@ -8,6 +8,7 @@ import type {
   StudentSkillRow,
   PendingChoiceRow,
   ActivityLogRow,
+  ActivityRow,
 } from './types'
 import { calcLevel, nextLevel } from './types'
 
@@ -123,8 +124,11 @@ app.get('/api/students/:id', async (c) => {
   ).bind(id).all<StudentSkillRow>()
 
   const pendingRes = await c.env.DB.prepare(
-    `SELECT * FROM pending_choices WHERE student_id = ? ORDER BY level ASC`
-  ).bind(id).all<PendingChoiceRow>()
+    `SELECT pc.*, lt.reward_desc
+     FROM pending_choices pc
+     LEFT JOIN level_table lt ON lt.class_id = ? AND lt.level = pc.level
+     WHERE pc.student_id = ? ORDER BY pc.level ASC`
+  ).bind(student.class_id, id).all<PendingChoiceRow & { reward_desc: string | null }>()
 
   const currentLv = calcLevel(student.xp, levelTable)
   const nextLv = nextLevel(student.xp, levelTable)
@@ -322,58 +326,108 @@ app.get('/api/classes/:classId/level-table', async (c) => {
   return c.json(results)
 })
 
-// ----- 레벨표 행 추가/수정 -----
-app.put('/api/classes/:classId/level-table/:level', async (c) => {
+// ----- 레벨표 - 스킬 내용만 수정 (게임 뼈대 고정) -----
+// 이름·보상 설명·선택지 텍스트만 변경 가능. required_xp/rank/level/is_choice 구조는 고정.
+app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
   const classId = Number(c.req.param('classId'))
   const level = Number(c.req.param('level'))
-  const body = await c.req.json<Partial<LevelRow>>()
+  const body = await c.req.json<{
+    unlock_skill?: string | null
+    reward_desc?: string | null
+    choice_a?: string | null
+    choice_b?: string | null
+  }>()
 
   const existing = await c.env.DB.prepare(
-    `SELECT id FROM level_table WHERE class_id = ? AND level = ?`
-  ).bind(classId, level).first()
+    `SELECT * FROM level_table WHERE class_id = ? AND level = ?`
+  ).bind(classId, level).first<LevelRow>()
+  if (!existing) return c.json({ error: '해당 레벨이 없습니다' }, 404)
 
-  if (existing) {
-    await c.env.DB.prepare(
-      `UPDATE level_table
-       SET required_xp = ?, rank = ?, unlock_skill = ?, passive_skill = ?,
-           is_choice = ?, choice_a = ?, choice_b = ?
-       WHERE class_id = ? AND level = ?`
-    ).bind(
-      body.required_xp ?? 0,
-      body.rank ?? 'bronze',
-      body.unlock_skill ?? null,
-      body.passive_skill ?? null,
-      body.is_choice ? 1 : 0,
-      body.choice_a ?? null,
-      body.choice_b ?? null,
-      classId, level
-    ).run()
-  } else {
-    await c.env.DB.prepare(
-      `INSERT INTO level_table (class_id, level, required_xp, rank, unlock_skill, passive_skill, is_choice, choice_a, choice_b)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      classId, level,
-      body.required_xp ?? 0,
-      body.rank ?? 'bronze',
-      body.unlock_skill ?? null,
-      body.passive_skill ?? null,
-      body.is_choice ? 1 : 0,
-      body.choice_a ?? null,
-      body.choice_b ?? null
-    ).run()
-  }
+  await c.env.DB.prepare(
+    `UPDATE level_table
+     SET unlock_skill = ?, reward_desc = ?, choice_a = ?, choice_b = ?
+     WHERE class_id = ? AND level = ?`
+  ).bind(
+    body.unlock_skill !== undefined ? (body.unlock_skill || null) : existing.unlock_skill,
+    body.reward_desc !== undefined ? (body.reward_desc || null) : existing.reward_desc,
+    body.choice_a !== undefined ? (body.choice_a || null) : existing.choice_a,
+    body.choice_b !== undefined ? (body.choice_b || null) : existing.choice_b,
+    classId, level
+  ).run()
 
   return c.json({ success: true })
 })
 
-// ----- 레벨표 행 삭제 -----
-app.delete('/api/classes/:classId/level-table/:level', async (c) => {
+// =================================================================
+// 활동(점수 부여 버튼) CRUD - 교사가 설정에서 편집
+// =================================================================
+
+app.get('/api/classes/:classId/activities', async (c) => {
   const classId = Number(c.req.param('classId'))
-  const level = Number(c.req.param('level'))
+  const { results } = await c.env.DB.prepare(
+    `SELECT * FROM activities WHERE class_id = ? ORDER BY sort_order, id`
+  ).bind(classId).all()
+  return c.json(results)
+})
+
+app.post('/api/classes/:classId/activities', async (c) => {
+  const classId = Number(c.req.param('classId'))
+  const body = await c.req.json<{
+    name: string
+    score_delta: number
+    emoji?: string
+    is_custom_input?: number
+  }>()
+
+  // 다음 sort_order 계산
+  const max = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(sort_order), 0) as m FROM activities WHERE class_id = ?`
+  ).bind(classId).first<{ m: number }>()
+  const nextOrder = (max?.m || 0) + 1
+
+  const res = await c.env.DB.prepare(
+    `INSERT INTO activities (class_id, name, score_delta, emoji, is_custom_input, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(
+    classId,
+    body.name,
+    body.score_delta || 0,
+    body.emoji || '⭐',
+    body.is_custom_input ? 1 : 0,
+    nextOrder
+  ).run()
+
+  return c.json({ success: true, id: res.meta.last_row_id })
+})
+
+app.put('/api/activities/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  const body = await c.req.json<{
+    name?: string
+    score_delta?: number
+    emoji?: string
+  }>()
+
+  const existing = await c.env.DB.prepare(
+    `SELECT * FROM activities WHERE id = ?`
+  ).bind(id).first<ActivityRow>()
+  if (!existing) return c.json({ error: '활동이 없습니다' }, 404)
+
   await c.env.DB.prepare(
-    `DELETE FROM level_table WHERE class_id = ? AND level = ?`
-  ).bind(classId, level).run()
+    `UPDATE activities SET name = ?, score_delta = ?, emoji = ? WHERE id = ?`
+  ).bind(
+    body.name ?? existing.name,
+    body.score_delta !== undefined ? body.score_delta : existing.score_delta,
+    body.emoji ?? existing.emoji,
+    id
+  ).run()
+
+  return c.json({ success: true })
+})
+
+app.delete('/api/activities/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  await c.env.DB.prepare(`DELETE FROM activities WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
 })
 
