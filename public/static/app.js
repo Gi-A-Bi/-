@@ -1,10 +1,10 @@
 // =================================================================
-// 우리반 모험단 - SPA 프론트엔드
+// 클업 (CLASS UP) - SPA 프론트엔드
 // =================================================================
 
 const state = {
   classId: 1, // 현재는 단일 학급. 추후 멀티 학급 확장.
-  className: '우리반 모험단',
+  className: '클업',
   view: 'list', // list | detail | logs | settings
   currentStudentId: null,
   students: [],
@@ -209,7 +209,7 @@ function updateHeader() {
   const titleEl = document.getElementById('header-title')
   const titleText = document.getElementById('header-title-text')
   if (state.view === 'list') {
-    titleText.innerHTML = '우리반 모험단'
+    titleText.innerHTML = '<span class="brand-ko">클업</span><span class="brand-en">CLASS UP</span>'
     titleEl.onclick = null
   } else {
     let label = ''

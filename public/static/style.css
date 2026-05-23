@@ -1,5 +1,5 @@
 /* =================================================================
-   우리반 모험단 - 게임 스타일 학급경영 앱
+   클업 (CLASS UP) - 게임 스타일 학급경영 앱
    ================================================================= */
 
 * {
@@ -108,6 +108,33 @@ button {
 .logo-icon {
   font-size: 24px;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+/* 브랜드 표기: 클업 + CLASS UP */
+#header-title-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1;
+}
+
+.brand-ko {
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.brand-en {
+  font-family: 'Jua', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .header-actions {

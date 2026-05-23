@@ -26,7 +26,10 @@ app.get('/', (c) => {
         <div class="header-inner">
           <div class="header-title" id="header-title">
             <span class="logo-icon">🎮</span>
-            <span id="header-title-text">우리반 모험단</span>
+            <span id="header-title-text">
+              <span class="brand-ko">클업</span>
+              <span class="brand-en">CLASS UP</span>
+            </span>
           </div>
           <div class="header-actions">
             <button class="icon-btn" id="nav-logs" title="활동 기록">📜</button>
