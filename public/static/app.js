@@ -3,14 +3,30 @@
 // =================================================================
 
 const state = {
-  classId: 1, // 현재는 단일 학급. 추후 멀티 학급 확장.
+  classId: null,            // Supabase UUID. 부팅 시 /api/bootstrap에서 로드
   className: '클업',
-  view: 'list', // list | detail | logs | settings
+  view: 'list',             // list | detail | logs | settings
   currentStudentId: null,
   students: [],
   levelTable: [],
-  activities: [], // 점수 부여 활동 목록 (DB)
-  settingsTab: 'activities', // 'activities' | 'skills'
+  activities: [],           // 점수 부여 활동 목록 (Supabase)
+  settingsTab: 'activities',// 'activities' | 'skills'
+  booted: false,
+}
+
+// 부팅: 기본 학급 ID 로드
+async function bootstrap() {
+  if (state.booted) return
+  try {
+    const data = await api('/api/bootstrap')
+    state.classId = (data.class && data.class.id) || data.default_class_id
+    if (data.class && data.class.name) state.className = data.class.name
+    state.booted = true
+  } catch (e) {
+    console.error('bootstrap failed', e)
+    showToast('Supabase 연결 실패: ' + e.message, 'error')
+    throw e
+  }
 }
 
 // ==============================
@@ -74,6 +90,18 @@ const AVATAR_COLORS = [
   '#A78BFA', '#8B5CF6', '#7C3AED', // 퍼플
   '#94A3B8', '#64748B', '#475569', // 그레이
 ]
+
+// avatar_color가 null이면 학생 번호/id 기반으로 결정적 fallback 색상 반환
+function avatarColor(student) {
+  if (student && student.avatar_color) return student.avatar_color
+  // student.number가 있으면 그것을, 없으면 id의 hash로 인덱스 결정
+  const key = student && (student.number || student.id || student.student_id) || ''
+  let h = 0
+  const s = String(key)
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  const idx = Math.abs(h) % AVATAR_COLORS.length
+  return AVATAR_COLORS[idx]
+}
 
 function rankInfo(rank) {
   if (rank === 'gold') return { label: '골드', icon: '🥇', cls: 'rank-gold' }
@@ -245,7 +273,7 @@ function showNicknameEditor(student) {
 function showAvatarPicker(student) {
   const container = document.getElementById('modal-container')
   let pickedEmoji = student.avatar_emoji || ''
-  let pickedColor = student.avatar_color || AVATAR_COLORS[0]
+  let pickedColor = student.avatar_color || avatarColor(student)
 
   function previewHtml() {
     return `
@@ -408,6 +436,7 @@ async function navigate(view, params = {}) {
   main.innerHTML = '<div class="view-container hint-text">불러오는 중...</div>'
 
   try {
+    if (!state.booted) await bootstrap()
     if (view === 'list') await renderList()
     else if (view === 'detail') await renderDetail(state.currentStudentId)
     else if (view === 'logs') await renderLogs()
@@ -443,7 +472,7 @@ async function renderList() {
     return `
       <div class="student-card ${pending ? 'has-pending' : ''}" data-id="${s.id}">
         ${pending ? `<div class="pending-badge">선택!</div>` : ''}
-        <div class="avatar ${s.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);">
+        <div class="avatar ${s.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);">
           ${avatarContent(s)}
         </div>
         ${displayNameHtml(s, { size: 'sm' })}
@@ -470,7 +499,7 @@ async function renderList() {
 
   main.querySelectorAll('.student-card').forEach(card => {
     card.addEventListener('click', () => {
-      const id = Number(card.dataset.id)
+      const id = card.dataset.id // UUID string
       navigate('detail', { studentId: id })
     })
   })
@@ -507,39 +536,39 @@ async function renderDetail(id) {
     hearts.push(`<span class="heart ${full ? 'full' : 'empty'}">${full ? '❤️' : '🩶'}</span>`)
   }
 
-  // 점수 버튼 (DB의 activities에서 로드)
+  // 점수 버튼 (Supabase의 activities에서 로드. 이모지는 이름 기반 자동)
   const scoreBtns = activities.map(a => {
+    const emoji = activityEmoji(a.name)
     if (a.is_custom_input) {
-      // 특별 점수 부여: 교사가 직접 점수 입력
       return `
         <button class="score-btn custom" data-activity-id="${a.id}" data-custom="1" data-name="${escapeHtml(a.name)}">
-          <div class="emoji">${a.emoji || '✨'}</div>
+          <div class="emoji">${emoji}</div>
           <div class="label">${escapeHtml(a.name)}</div>
-          <div class="delta" style="background:#ede9fe;color:#6d28d9;">직접 입력</div>
+          <div class="delta" style="background:rgba(192,132,252,0.2);color:#ddd6fe;border:1px solid rgba(192,132,252,0.4);">직접 입력</div>
         </button>
       `
     }
     const type = a.score_delta >= 0 ? 'positive' : 'negative'
     return `
       <button class="score-btn ${type}" data-activity-id="${a.id}" data-name="${escapeHtml(a.name)}" data-delta="${a.score_delta}">
-        <div class="emoji">${a.emoji || '⭐'}</div>
+        <div class="emoji">${emoji}</div>
         <div class="label">${escapeHtml(a.name)}</div>
         <div class="delta ${a.score_delta >= 0 ? 'delta-pos' : 'delta-neg'}">${a.score_delta >= 0 ? '+' : ''}${a.score_delta} XP</div>
       </button>
     `
   }).join('')
 
-  // 선택 대기
-  const choices = s.pending_choices.map(pc => `
+  // 선택 대기 (uid 기반)
+  const choices = (s.pending_choices || []).map(pc => `
     <div class="choice-card">
       <div class="choice-title">🎁 Lv.${pc.level} 보상 선택</div>
       <div class="choice-sub">${escapeHtml(pc.reward_desc || '아래 두 보상 중 하나를 골라주세요')}</div>
       <div class="choice-options">
-        <button class="choice-option" data-choice-id="${pc.id}" data-pick="A">
+        <button class="choice-option" data-choice-uid="${pc.uid}" data-pick="A">
           <span class="opt-label">A</span>
           ${escapeHtml(pc.choice_a)}
         </button>
-        <button class="choice-option" data-choice-id="${pc.id}" data-pick="B">
+        <button class="choice-option" data-choice-uid="${pc.uid}" data-pick="B">
           <span class="opt-label">B</span>
           ${escapeHtml(pc.choice_b)}
         </button>
@@ -547,15 +576,15 @@ async function renderDetail(id) {
     </div>
   `).join('')
 
-  // 보유 스킬
-  const skills = s.skills.map(sk => `
+  // 보유 스킬 (uid 기반)
+  const skills = (s.skills || []).map(sk => `
     <div class="skill-card">
       <div class="skill-icon">${skillEmoji(sk.skill_name)}</div>
       <div class="skill-info">
         <div class="skill-name">${escapeHtml(sk.skill_name)}</div>
         <div class="skill-source">Lv.${sk.source_level} 보상</div>
       </div>
-      <button class="use-btn" data-skill-id="${sk.id}" data-skill-name="${escapeHtml(sk.skill_name)}">사용하기</button>
+      <button class="use-btn" data-skill-uid="${sk.uid}" data-skill-name="${escapeHtml(sk.skill_name)}">사용하기</button>
     </div>
   `).join('')
 
@@ -568,7 +597,7 @@ async function renderDetail(id) {
       <div class="detail-hero">
         <button class="avatar avatar-lg ${s.avatar_emoji ? 'avatar-emoji' : ''}"
                 id="avatar-edit-btn"
-                style="background: linear-gradient(135deg, ${s.avatar_color}, ${s.avatar_color}cc);"
+                style="background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);"
                 title="아바타 꾸미기">
           ${avatarContent(s)}
           <span class="avatar-edit-icon">✏️</span>
@@ -633,9 +662,9 @@ async function renderDetail(id) {
       <div class="section-card">
         <div class="section-title">
           <span>🎁</span> 보유 스킬 (해금·소모)
-          <span class="count-pill">${s.skills.length}</span>
+          <span class="count-pill">${(s.skills || []).length}</span>
         </div>
-        ${s.skills.length === 0
+        ${(s.skills || []).length === 0
           ? `<div class="empty-state">아직 보유한 스킬이 없어요.<br/>레벨을 올리면 스킬이 쌓여요!</div>`
           : `<div class="skill-list">${skills}</div>`}
       </div>
@@ -661,21 +690,21 @@ async function renderDetail(id) {
 
   main.querySelectorAll('.use-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const skillId = Number(btn.dataset.skillId)
+      const skillUid = btn.dataset.skillUid
       const name = btn.dataset.skillName
       showConfirm(
         `${name} 사용`,
         '이 스킬은 한 번 사용하면 사라집니다. 사용할까요?',
-        () => useSkill(id, skillId, name)
+        () => useSkill(id, skillUid, name)
       )
     })
   })
 
   main.querySelectorAll('.choice-option').forEach(btn => {
     btn.addEventListener('click', () => {
-      const choiceId = Number(btn.dataset.choiceId)
+      const choiceUid = btn.dataset.choiceUid
       const pick = btn.dataset.pick
-      resolveChoice(id, choiceId, pick)
+      resolveChoice(id, choiceUid, pick)
     })
   })
 }
@@ -726,9 +755,9 @@ async function adjustHp(studentId, delta) {
   }
 }
 
-async function useSkill(studentId, skillId, name) {
+async function useSkill(studentId, skillUid, name) {
   try {
-    await api(`/api/students/${studentId}/skills/${skillId}/use`, { method: 'POST' })
+    await api(`/api/students/${studentId}/skills/${skillUid}/use`, { method: 'POST' })
     showToast(`${name} 스킬을 사용했어요!`, 'success', '✨')
     await renderDetail(studentId)
   } catch (e) {
@@ -736,9 +765,9 @@ async function useSkill(studentId, skillId, name) {
   }
 }
 
-async function resolveChoice(studentId, choiceId, pick) {
+async function resolveChoice(studentId, choiceUid, pick) {
   try {
-    const res = await api(`/api/students/${studentId}/choices/${choiceId}/resolve`, {
+    const res = await api(`/api/students/${studentId}/choices/${choiceUid}/resolve`, {
       method: 'POST',
       body: JSON.stringify({ pick }),
     })
@@ -783,7 +812,7 @@ async function renderLogs() {
     const displayName = l.student_nickname || l.student_name
     return `
       <div class="log-item">
-        <div class="log-avatar ${l.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${l.avatar_color}, ${l.avatar_color}cc);">
+        <div class="log-avatar ${l.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${avatarColor({ avatar_color: l.avatar_color, id: l.student_id })}, ${avatarColor({ avatar_color: l.avatar_color, id: l.student_id })}cc);">
           ${l.avatar_emoji ? l.avatar_emoji : escapeHtml(getInitial(l.student_name))}
         </div>
         <div class="log-content">
@@ -864,7 +893,7 @@ async function renderActivitiesSettings() {
 
   const rows = activities.map(a => `
     <div class="activity-edit-item ${a.is_custom_input ? 'custom' : ''}" data-id="${a.id}">
-      <input type="text" class="f-emoji" value="${escapeHtml(a.emoji || '⭐')}" maxlength="3" />
+      <div class="f-emoji" style="display:flex;align-items:center;justify-content:center;">${activityEmoji(a.name)}</div>
       <input type="text" class="f-name" value="${escapeHtml(a.name)}" placeholder="활동명" />
       ${a.is_custom_input
         ? `<div class="custom-badge">직접 입력</div>`
@@ -887,14 +916,13 @@ async function renderActivitiesSettings() {
 
   // 자동 저장 (blur 시)
   body.querySelectorAll('.activity-edit-item').forEach(item => {
-    const id = Number(item.dataset.id)
+    const id = item.dataset.id // UUID string
     const inputs = item.querySelectorAll('input')
     inputs.forEach(inp => {
       inp.addEventListener('blur', async () => {
         const name = item.querySelector('.f-name').value.trim()
-        const emoji = item.querySelector('.f-emoji').value.trim() || '⭐'
         const deltaEl = item.querySelector('.f-delta')
-        const body = { name, emoji }
+        const body = { name }
         if (deltaEl) body.score_delta = Number(deltaEl.value) || 0
         if (!name) {
           showToast('활동명을 입력해주세요', 'warning')
@@ -908,7 +936,7 @@ async function renderActivitiesSettings() {
           state.activities = [] // 캐시 무효화
           // 잔잔한 저장 피드백
           item.style.transition = 'background 0.3s'
-          item.style.background = '#dcfce7'
+          item.style.background = 'rgba(74,222,128,0.15)'
           setTimeout(() => item.style.background = '', 600)
         } catch (e) {
           showToast(e.message, 'error')
@@ -921,7 +949,7 @@ async function renderActivitiesSettings() {
   body.querySelectorAll('.delete-act-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const item = btn.closest('.activity-edit-item')
-      const id = Number(item.dataset.id)
+      const id = item.dataset.id
       const name = item.querySelector('.f-name').value
       showConfirm(`'${name}' 활동 삭제`, '이 활동 버튼을 삭제할까요?', async () => {
         try {
@@ -944,7 +972,6 @@ async function renderActivitiesSettings() {
         body: JSON.stringify({
           name: '새 활동',
           score_delta: 10,
-          emoji: '⭐',
         }),
       })
       state.activities = []
@@ -1065,11 +1092,15 @@ async function renderSkillsSettings() {
 // ==============================
 // 헤더 버튼
 // ==============================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('nav-logs').onclick = () => navigate('logs')
   document.getElementById('nav-settings').onclick = () => navigate('settings')
   document.getElementById('header-title').onclick = () => navigate('list')
 
-  // 첫 화면 로드
-  navigate('list')
+  try {
+    await bootstrap()
+    navigate('list')
+  } catch (e) {
+    // bootstrap에서 이미 토스트 처리됨
+  }
 })
