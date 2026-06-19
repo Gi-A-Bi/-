@@ -3,10 +3,12 @@ import { cors } from 'hono/cors'
 import { renderer } from './renderer'
 import type {
   Bindings,
+  Variables,
   StudentRow,
   LevelRow,
   ActivityRow,
   ActivityLogRow,
+  ClassRow,
   OwnedSkill,
   UsedSkill,
 } from './types'
@@ -19,18 +21,18 @@ import {
 } from './types'
 import { makeSupabase } from './supabase'
 
-const app = new Hono<{ Bindings: Bindings }>()
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.use('/api/*', cors())
 app.use(renderer)
 
 // =================================================================
-// 메인 페이지 (SPA 쉘)
+// 메인 페이지 (SPA 쉘) - 로그인 화면도 클라이언트가 그림
 // =================================================================
 app.get('/', (c) => {
   return c.render(
     <div id="app">
-      <header class="app-header">
+      <header class="app-header" id="app-header" style="display:none;">
         <div class="header-inner">
           <div class="header-title" id="header-title">
             <span class="logo-icon">🎮</span>
@@ -42,6 +44,7 @@ app.get('/', (c) => {
           <div class="header-actions">
             <button class="icon-btn" id="nav-logs" title="활동 기록">📜</button>
             <button class="icon-btn" id="nav-settings" title="설정">⚙️</button>
+            <button class="icon-btn" id="nav-logout" title="로그아웃">🚪</button>
           </div>
         </div>
       </header>
@@ -55,7 +58,140 @@ app.get('/', (c) => {
 })
 
 // =================================================================
-// 헬퍼: 학생 row → enriched (level/rank/passive/skill_count 등 부착)
+// Auth 미들웨어 - 모든 /api/* (단 /api/public-config 제외) 보호
+// Authorization: Bearer <access_token> 헤더 검증
+// Supabase /auth/v1/user 에 토큰을 보내 이메일 추출
+// =================================================================
+async function verifyToken(env: Bindings, token: string): Promise<
+  | { ok: true; email: string; id: string }
+  | { ok: false; status: 'invalid' | 'network' }
+> {
+  const url = env.SUPABASE_URL.replace(/\/+$/, '') + '/auth/v1/user'
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: {
+        apikey: env.SUPABASE_KEY,
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  } catch (e) {
+    return { ok: false, status: 'network' }
+  }
+  if (!res.ok) return { ok: false, status: 'invalid' }
+  const user = await res.json().catch(() => null) as any
+  if (!user || !user.email) return { ok: false, status: 'invalid' }
+  return { ok: true, email: String(user.email).toLowerCase(), id: String(user.id) }
+}
+
+const requireAuth = async (c: any, next: any) => {
+  const auth = c.req.header('Authorization') || ''
+  const m = auth.match(/^Bearer\s+(.+)$/i)
+  if (!m) return c.json({ error: '로그인이 필요합니다', code: 'NO_AUTH' }, 401)
+
+  const result = await verifyToken(c.env, m[1])
+  if (!result.ok) {
+    if (result.status === 'network') {
+      return c.json({ error: 'Supabase 연결 실패 (잠시 후 다시 시도해주세요)', code: 'AUTH_NETWORK' }, 503)
+    }
+    return c.json({ error: '세션이 만료되었습니다', code: 'INVALID_TOKEN' }, 401)
+  }
+
+  c.set('email', result.email)
+  c.set('userId', result.id)
+  await next()
+}
+
+// /api/public-config 외 모든 /api/* 에 Auth 적용
+app.use('/api/me', requireAuth)
+app.use('/api/my-class', requireAuth)
+app.use('/api/classes', requireAuth)
+app.use('/api/classes/*', requireAuth)
+app.use('/api/students/*', requireAuth)
+app.use('/api/activities/*', requireAuth)
+
+// =================================================================
+// Public: 프론트에서 Supabase Auth를 초기화할 때 필요한 anon key/url
+// =================================================================
+app.get('/api/public-config', (c) => {
+  return c.json({
+    supabase_url: c.env.SUPABASE_URL,
+    supabase_key: c.env.SUPABASE_KEY,
+  })
+})
+
+// =================================================================
+// 현재 로그인 사용자
+// =================================================================
+app.get('/api/me', (c) => {
+  return c.json({ email: c.get('email'), id: c.get('userId') })
+})
+
+// =================================================================
+// 학급 소유권 검증 헬퍼
+//  - 주어진 classId 가 현재 로그인 사용자의 학급인지 DB에서 직접 확인
+//  - 통과 못 하면 403 응답 (라우트는 즉시 return)
+// =================================================================
+async function loadOwnedClass(c: any, classId: string): Promise<ClassRow | Response> {
+  const sb = makeSupabase(c.env)
+  const email = c.get('email') as string
+  const rows = await sb.select<ClassRow>(
+    'classes',
+    `select=*&id=eq.${classId}&limit=1`,
+  )
+  const cls = rows[0]
+  if (!cls) return c.json({ error: '학급을 찾을 수 없습니다' }, 404)
+  if (!cls.owner_email || cls.owner_email.toLowerCase() !== email) {
+    return c.json({ error: '권한이 없습니다', code: 'NOT_OWNER' }, 403)
+  }
+  return cls
+}
+
+// 학생 id 로부터 학급 소유권 검증 (학생 row를 미리 로드해서 함께 반환)
+async function loadOwnedStudent(c: any, studentId: string): Promise<{ student: StudentRow; cls: ClassRow } | Response> {
+  const sb = makeSupabase(c.env)
+  const email = c.get('email') as string
+  const studentRows = await sb.select<StudentRow>(
+    'students',
+    `select=*&id=eq.${studentId}&limit=1`,
+  )
+  const student = studentRows[0]
+  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
+
+  const clsRows = await sb.select<ClassRow>(
+    'classes',
+    `select=*&id=eq.${student.class_id}&limit=1`,
+  )
+  const cls = clsRows[0]
+  if (!cls || !cls.owner_email || cls.owner_email.toLowerCase() !== email) {
+    return c.json({ error: '권한이 없습니다', code: 'NOT_OWNER' }, 403)
+  }
+  return { student, cls }
+}
+
+// 활동(점수버튼) id 로부터 학급 소유권 검증
+async function loadOwnedActivity(c: any, activityId: string): Promise<{ activity: ActivityRow; cls: ClassRow } | Response> {
+  const sb = makeSupabase(c.env)
+  const email = c.get('email') as string
+  const rows = await sb.select<ActivityRow>(
+    'activities',
+    `select=*&id=eq.${activityId}&limit=1`,
+  )
+  const activity = rows[0]
+  if (!activity) return c.json({ error: '활동을 찾을 수 없습니다' }, 404)
+  const clsRows = await sb.select<ClassRow>(
+    'classes',
+    `select=*&id=eq.${activity.class_id}&limit=1`,
+  )
+  const cls = clsRows[0]
+  if (!cls || !cls.owner_email || cls.owner_email.toLowerCase() !== email) {
+    return c.json({ error: '권한이 없습니다', code: 'NOT_OWNER' }, 403)
+  }
+  return { activity, cls }
+}
+
+// =================================================================
+// 헬퍼: 학생 row → enriched
 // =================================================================
 function enrichStudent(s: StudentRow, levelTable: LevelRow[]) {
   const cur = calcLevel(s.xp, levelTable)
@@ -81,31 +217,122 @@ function enrichStudent(s: StudentRow, levelTable: LevelRow[]) {
 }
 
 // =================================================================
-// 학급 정보
+// 내 학급 찾기 (로그인 후 부트스트랩)
+//   - owner_email = 내 이메일 인 학급 1건 반환
+//   - 없으면 null (프론트가 온보딩 화면 표시)
+//   - + claimable_classes: owner_email 이 비어있는 학급 목록 (기존 4-1 같은 것)
 // =================================================================
-app.get('/api/classes', async (c) => {
+app.get('/api/my-class', async (c) => {
   const sb = makeSupabase(c.env)
-  const rows = await sb.select('classes', 'select=*&order=created_at.asc')
-  return c.json(rows)
-})
-
-// 기본 학급 ID 반환 (프론트 부트스트랩)
-app.get('/api/bootstrap', async (c) => {
-  const sb = makeSupabase(c.env)
-  const cls = await sb.select('classes', 'select=*&order=created_at.asc&limit=1')
+  const email = c.get('email')
+  const [owned, claimable] = await Promise.all([
+    sb.select<ClassRow>(
+      'classes',
+      `select=*&owner_email=eq.${encodeURIComponent(email)}&order=created_at.asc&limit=1`,
+    ),
+    sb.select<ClassRow>(
+      'classes',
+      `select=id,name,created_at&owner_email=is.null&order=created_at.asc`,
+    ),
+  ])
   return c.json({
-    class: cls[0] || null,
-    default_class_id: c.env.DEFAULT_CLASS_ID,
+    my_class: owned[0] || null,
+    claimable_classes: claimable, // 아직 주인 없는 학급 (기존 4-1 등)
   })
 })
 
 // =================================================================
-// 학생 목록
+// 새 학급 만들기 (온보딩)
+// =================================================================
+app.post('/api/classes', async (c) => {
+  const sb = makeSupabase(c.env)
+  const email = c.get('email') as string
+  const body = await c.req.json<{ name: string }>().catch(() => ({} as any))
+  const name = (body.name || '').trim()
+  if (!name) return c.json({ error: '학급 이름을 입력해주세요' }, 400)
+
+  // 이미 학급이 있으면 추가 생성 금지 (1선생 = 1학급 정책)
+  const existing = await sb.select<ClassRow>(
+    'classes',
+    `select=id&owner_email=eq.${encodeURIComponent(email)}&limit=1`,
+  )
+  if (existing[0]) {
+    return c.json({ error: '이미 학급이 있습니다', code: 'ALREADY_HAS_CLASS' }, 400)
+  }
+
+  const inserted = await sb.insert<ClassRow>('classes', [{
+    name,
+    owner_email: email,
+  }])
+  const cls = inserted[0]
+  if (!cls) return c.json({ error: '학급 생성에 실패했습니다' }, 500)
+
+  // 신규 학급에는 기본 활동(점수버튼) 12개 시드 (기존 4-1과 동일 사양)
+  const DEFAULT_ACTIVITIES = [
+    { name: '발표/적극 참여', score: 100, sort_order: 1 },
+    { name: '과제/숙제 완료', score: 80, sort_order: 2 },
+    { name: '협동/도움', score: 60, sort_order: 3 },
+    { name: '예의/태도', score: 50, sort_order: 4 },
+    { name: '정리정돈', score: 40, sort_order: 5 },
+    { name: '독서/공부', score: 30, sort_order: 6 },
+    { name: '인사/존중', score: 20, sort_order: 7 },
+    { name: '기타 +(직접입력)', score: 0, sort_order: 8 },
+    { name: '지각', score: -20, sort_order: 9 },
+    { name: '준비물 미비', score: -30, sort_order: 10 },
+    { name: '수업 방해', score: -50, sort_order: 11 },
+    { name: '기타 -(직접입력)', score: 0, sort_order: 12 },
+  ].map(a => ({ ...a, class_id: cls.id }))
+
+  await sb.insert('activities', DEFAULT_ACTIVITIES, false)
+
+  return c.json({ success: true, class: cls })
+})
+
+// =================================================================
+// 기존 학급 '내 학급으로 가져오기' (claim)
+//   - owner_email 이 비어있는 학급에만 가능
+//   - 한 선생당 1학급이라, 이미 본인 학급 있으면 거절
+// =================================================================
+app.post('/api/classes/:id/claim', async (c) => {
+  const id = c.req.param('id')
+  const sb = makeSupabase(c.env)
+  const email = c.get('email') as string
+
+  const existing = await sb.select<ClassRow>(
+    'classes',
+    `select=id&owner_email=eq.${encodeURIComponent(email)}&limit=1`,
+  )
+  if (existing[0]) {
+    return c.json({ error: '이미 학급이 있습니다', code: 'ALREADY_HAS_CLASS' }, 400)
+  }
+
+  const rows = await sb.select<ClassRow>(
+    'classes',
+    `select=*&id=eq.${id}&limit=1`,
+  )
+  const cls = rows[0]
+  if (!cls) return c.json({ error: '학급을 찾을 수 없습니다' }, 404)
+  if (cls.owner_email) {
+    return c.json({ error: '이미 주인이 있는 학급입니다' }, 400)
+  }
+
+  const updated = await sb.update<ClassRow>(
+    'classes',
+    { owner_email: email },
+    `id=eq.${id}`,
+  )
+  return c.json({ success: true, class: updated[0] })
+})
+
+// =================================================================
+// 학생 목록 (학급 소유권 검증)
 // =================================================================
 app.get('/api/classes/:classId/students', async (c) => {
   const classId = c.req.param('classId')
-  const sb = makeSupabase(c.env)
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
 
+  const sb = makeSupabase(c.env)
   const [students, levels] = await Promise.all([
     sb.select<StudentRow>(
       'students',
@@ -119,24 +346,71 @@ app.get('/api/classes/:classId/students', async (c) => {
 })
 
 // =================================================================
+// 학생 추가 (학급 소유권 검증)
+// =================================================================
+app.post('/api/classes/:classId/students', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ name: string; number?: number }>().catch(() => ({} as any))
+  const name = (body.name || '').trim()
+  if (!name) return c.json({ error: '이름을 입력해주세요' }, 400)
+
+  const sb = makeSupabase(c.env)
+  // 자동 번호 = 현재 최대 + 1
+  let number = Number(body.number || 0)
+  if (!number) {
+    const rows = await sb.select<StudentRow>(
+      'students',
+      `select=number&class_id=eq.${classId}&order=number.desc&limit=1`,
+    )
+    number = (rows[0]?.number || 0) + 1
+  }
+
+  const inserted = await sb.insert<StudentRow>('students', [{
+    class_id: classId,
+    number,
+    name,
+    nickname: null,
+    avatar_emoji: null,
+    avatar_color: null,
+    xp: 0,
+    hp: 3,
+    owned_skills: [],
+    used_skills: [],
+  }])
+  return c.json({ success: true, student: inserted[0] })
+})
+
+// =================================================================
+// 학생 삭제 (학급 소유권 검증)
+// =================================================================
+app.delete('/api/students/:id', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+
+  const sb = makeSupabase(c.env)
+  // 학생의 활동기록도 함께 삭제
+  await sb.delete('activity_logs', `student_id=eq.${id}`)
+  await sb.delete('students', `id=eq.${id}`)
+  return c.json({ success: true })
+})
+
+// =================================================================
 // 학생 상세
 // =================================================================
 app.get('/api/students/:id', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
   const sb = makeSupabase(c.env)
-
-  const rows = await sb.select<StudentRow>(
-    'students',
-    `select=*&id=eq.${id}&limit=1`,
-  )
-  const student = rows[0]
-  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
-
   const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
-
   const e = enrichStudent(student, levels)
 
-  // 프론트에서 사용하던 skills / pending_choices 분리 표현 호환
   const owned = e.owned_skills
   const skills = owned
     .filter(s => !s.pending)
@@ -155,11 +429,7 @@ app.get('/api/students/:id', async (c) => {
       choice_b: s.choice_b!,
     }))
 
-  return c.json({
-    ...e,
-    skills,
-    pending_choices,
-  })
+  return c.json({ ...e, skills, pending_choices })
 })
 
 // =================================================================
@@ -167,6 +437,9 @@ app.get('/api/students/:id', async (c) => {
 // =================================================================
 app.put('/api/students/:id/profile', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+
   const body = await c.req.json<{
     nickname?: string | null
     avatar_emoji?: string | null
@@ -178,18 +451,10 @@ app.put('/api/students/:id/profile', async (c) => {
   if (body.nickname !== undefined) {
     patch.nickname = body.nickname ? body.nickname.trim() || null : null
   }
-  if (body.avatar_emoji !== undefined) {
-    patch.avatar_emoji = body.avatar_emoji || null
-  }
-  if (body.avatar_color !== undefined) {
-    patch.avatar_color = body.avatar_color || null
-  }
+  if (body.avatar_emoji !== undefined) patch.avatar_emoji = body.avatar_emoji || null
+  if (body.avatar_color !== undefined) patch.avatar_color = body.avatar_color || null
 
-  const updated = await sb.update<StudentRow>(
-    'students',
-    patch,
-    `id=eq.${id}`,
-  )
+  const updated = await sb.update<StudentRow>('students', patch, `id=eq.${id}`)
   if (!updated[0]) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
 
   return c.json({
@@ -201,22 +466,18 @@ app.put('/api/students/:id/profile', async (c) => {
 })
 
 // =================================================================
-// 점수 부여 (XP 변경 + 활동 로그 + 레벨업 시 보유 스킬 자동 지급)
+// 점수 부여
 // =================================================================
 app.post('/api/students/:id/score', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
   const body = await c.req.json<{ activity_name: string; score_delta: number }>()
   const sb = makeSupabase(c.env)
 
-  const studentRows = await sb.select<StudentRow>(
-    'students',
-    `select=*&id=eq.${id}&limit=1`,
-  )
-  const student = studentRows[0]
-  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
-
   const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
-
   const oldLevel = calcLevel(student.xp, levels).level
   const newXp = Math.max(0, student.xp + Number(body.score_delta || 0))
   const newLevel = calcLevel(newXp, levels).level
@@ -224,7 +485,6 @@ app.post('/api/students/:id/score', async (c) => {
   const ownedNow: OwnedSkill[] = Array.isArray(student.owned_skills)
     ? [...student.owned_skills]
     : []
-
   const newSkills: string[] = []
   const newPendingChoices: { uid: string; level: number; choice_a: string; choice_b: string }[] = []
   const levelUpLogs: ActivityLogRow[] = []
@@ -232,7 +492,6 @@ app.post('/api/students/:id/score', async (c) => {
   if (newLevel > oldLevel) {
     for (const lv of levels) {
       if (lv.level > oldLevel && lv.level <= newLevel) {
-        // 레벨업 로그
         levelUpLogs.push({
           class_id: student.class_id,
           student_id: student.id,
@@ -275,7 +534,6 @@ app.post('/api/students/:id/score', async (c) => {
     }
   }
 
-  // 학생 업데이트 (xp + owned_skills)
   await sb.update<StudentRow>(
     'students',
     { xp: newXp, owned_skills: ownedNow },
@@ -283,7 +541,6 @@ app.post('/api/students/:id/score', async (c) => {
     false,
   )
 
-  // 점수 로그 + 레벨업 로그 한 번에 insert
   const logs: ActivityLogRow[] = [
     {
       class_id: student.class_id,
@@ -312,38 +569,29 @@ app.post('/api/students/:id/score', async (c) => {
 // =================================================================
 app.post('/api/students/:id/hp', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
   const body = await c.req.json<{ delta: number }>()
   const sb = makeSupabase(c.env)
-
-  const rows = await sb.select<StudentRow>(
-    'students',
-    `select=*&id=eq.${id}&limit=1`,
-  )
-  const student = rows[0]
-  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
-
   const maxHp = 3
   const newHp = Math.max(0, Math.min(maxHp, (student.hp || 0) + Number(body.delta || 0)))
-
   await sb.update('students', { hp: newHp }, `id=eq.${id}`, false)
   return c.json({ success: true, hp: newHp })
 })
 
 // =================================================================
-// 스킬 사용 (owned → used 이동 + activity_logs)
+// 스킬 사용
 // =================================================================
 app.post('/api/students/:id/skills/:uid/use', async (c) => {
   const studentId = c.req.param('id')
   const skillUid = c.req.param('uid')
+  const result = await loadOwnedStudent(c, studentId)
+  if (result instanceof Response) return result
+  const { student } = result
+
   const sb = makeSupabase(c.env)
-
-  const rows = await sb.select<StudentRow>(
-    'students',
-    `select=*&id=eq.${studentId}&limit=1`,
-  )
-  const student = rows[0]
-  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
-
   const owned: OwnedSkill[] = Array.isArray(student.owned_skills) ? student.owned_skills : []
   const used: UsedSkill[] = Array.isArray(student.used_skills) ? student.used_skills : []
 
@@ -354,11 +602,7 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
   const newOwned = owned.filter(s => s.uid !== skillUid)
   const newUsed: UsedSkill[] = [
     ...used,
-    {
-      name: target.name,
-      level: target.level,
-      used_at: new Date().toISOString(),
-    },
+    { name: target.name, level: target.level, used_at: new Date().toISOString() },
   ]
 
   await sb.update(
@@ -367,18 +611,13 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
     `id=eq.${studentId}`,
     false,
   )
-
-  await sb.insert(
-    'activity_logs',
-    [{
-      class_id: student.class_id,
-      student_id: student.id,
-      type: 'skill_use',
-      name: `${target.name} 스킬 사용`,
-      score: 0,
-    }],
-    false,
-  )
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'skill_use',
+    name: `${target.name} 스킬 사용`,
+    score: 0,
+  }], false)
 
   return c.json({ success: true })
 })
@@ -389,21 +628,15 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
 app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
   const studentId = c.req.param('id')
   const choiceUid = c.req.param('uid')
+  const result = await loadOwnedStudent(c, studentId)
+  if (result instanceof Response) return result
+  const { student } = result
+
   const body = await c.req.json<{ pick: 'A' | 'B' }>()
   const sb = makeSupabase(c.env)
-
-  const rows = await sb.select<StudentRow>(
-    'students',
-    `select=*&id=eq.${studentId}&limit=1`,
-  )
-  const student = rows[0]
-  if (!student) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
-
   const owned: OwnedSkill[] = Array.isArray(student.owned_skills) ? student.owned_skills : []
   const target = owned.find(s => s.uid === choiceUid)
-  if (!target || !target.pending) {
-    return c.json({ error: '선택 대기 항목을 찾을 수 없습니다' }, 404)
-  }
+  if (!target || !target.pending) return c.json({ error: '선택 대기 항목을 찾을 수 없습니다' }, 404)
 
   const picked = body.pick === 'A'
     ? (target.choice_a || target.name)
@@ -411,33 +644,17 @@ app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
 
   const newOwned: OwnedSkill[] = owned.map(s => {
     if (s.uid !== choiceUid) return s
-    return {
-      uid: s.uid,
-      name: picked,
-      level: s.level,
-      acquired_at: s.acquired_at,
-      // pending/choice_a/choice_b 제거
-    }
+    return { uid: s.uid, name: picked, level: s.level, acquired_at: s.acquired_at }
   })
 
-  await sb.update(
-    'students',
-    { owned_skills: newOwned },
-    `id=eq.${studentId}`,
-    false,
-  )
-
-  await sb.insert(
-    'activity_logs',
-    [{
-      class_id: student.class_id,
-      student_id: student.id,
-      type: 'skill_choice',
-      name: `Lv.${target.level} 보상 선택: ${picked}`,
-      score: 0,
-    }],
-    false,
-  )
+  await sb.update('students', { owned_skills: newOwned }, `id=eq.${studentId}`, false)
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'skill_choice',
+    name: `Lv.${target.level} 보상 선택: ${picked}`,
+    score: 0,
+  }], false)
 
   return c.json({ success: true, picked })
 })
@@ -447,9 +664,11 @@ app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
 // =================================================================
 app.get('/api/classes/:classId/logs', async (c) => {
   const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
   const limit = Number(c.req.query('limit') || 200)
   const sb = makeSupabase(c.env)
-
   const [logs, students] = await Promise.all([
     sb.select<ActivityLogRow>(
       'activity_logs',
@@ -466,7 +685,6 @@ app.get('/api/classes/:classId/logs', async (c) => {
     const s = map.get(l.student_id) as Partial<StudentRow> | undefined
     return {
       ...l,
-      // 프론트 호환을 위해 기존 컬럼명 유지
       log_type: l.type,
       activity_name: l.name,
       score_delta: l.score,
@@ -481,12 +699,16 @@ app.get('/api/classes/:classId/logs', async (c) => {
 })
 
 // =================================================================
-// 레벨표 (구조는 고정. 클라이언트 표시용)
+// 레벨표 (전역 - 모든 학급이 공통으로 사용)
+//  학급 소유권 검증은 하되, levels 자체는 공통 테이블
 // =================================================================
 app.get('/api/classes/:classId/level-table', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
   const sb = makeSupabase(c.env)
   const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
-  // 프론트가 사용하던 필드(rank, required_xp, is_choice, choice_a, choice_b) 매핑
   const mapped = levels.map(lv => {
     const parsed = parseUnlockSkill(lv.unlock_skill)
     return {
@@ -506,49 +728,39 @@ app.get('/api/classes/:classId/level-table', async (c) => {
   return c.json(mapped)
 })
 
-// 레벨표 - 스킬 내용 수정 (unlock_skill / passive_skill 만)
 app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
   const level = Number(c.req.param('level'))
   const body = await c.req.json<{
     unlock_skill?: string | null
     passive_skill?: string | null
-    // 호환을 위해 옛 필드도 받지만, choice_a/b가 들어오면 합쳐서 unlock_skill로 저장
     choice_a?: string | null
     choice_b?: string | null
     reward_desc?: string | null
   }>()
   const sb = makeSupabase(c.env)
 
-  const existingRows = await sb.select<LevelRow>(
-    'levels',
-    `select=*&level=eq.${level}&limit=1`,
-  )
+  const existingRows = await sb.select<LevelRow>('levels', `select=*&level=eq.${level}&limit=1`)
   const existing = existingRows[0]
   if (!existing) return c.json({ error: '해당 레벨이 없습니다' }, 404)
 
   const patch: Record<string, any> = {}
-
-  // unlock_skill 우선 적용. choice_a/b가 함께 들어오면 "[선택] A.x / B.y" 로 합성
   if (body.unlock_skill !== undefined) {
     patch.unlock_skill = body.unlock_skill || null
   } else if (body.choice_a !== undefined || body.choice_b !== undefined) {
     const cur = parseUnlockSkill(existing.unlock_skill)
     const a = body.choice_a !== undefined ? body.choice_a : cur.choice_a
     const b = body.choice_b !== undefined ? body.choice_b : cur.choice_b
-    if (a && b) {
-      patch.unlock_skill = `[선택] A.${a} / B.${b}`
-    }
+    if (a && b) patch.unlock_skill = `[선택] A.${a} / B.${b}`
   } else if (body.reward_desc !== undefined) {
     patch.unlock_skill = body.reward_desc || null
   }
+  if (body.passive_skill !== undefined) patch.passive_skill = body.passive_skill || null
 
-  if (body.passive_skill !== undefined) {
-    patch.passive_skill = body.passive_skill || null
-  }
-
-  if (Object.keys(patch).length === 0) {
-    return c.json({ success: true, no_changes: true })
-  }
+  if (Object.keys(patch).length === 0) return c.json({ success: true, no_changes: true })
 
   await sb.update('levels', patch, `level=eq.${level}`, false)
   return c.json({ success: true })
@@ -559,12 +771,14 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
 // =================================================================
 app.get('/api/classes/:classId/activities', async (c) => {
   const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
   const sb = makeSupabase(c.env)
   const rows = await sb.select<ActivityRow>(
     'activities',
     `select=*&class_id=eq.${classId}&order=sort_order.asc`,
   )
-  // 프론트 호환: score_delta 필드 매핑
   const mapped = rows.map(a => ({
     id: a.id,
     class_id: a.class_id,
@@ -579,6 +793,9 @@ app.get('/api/classes/:classId/activities', async (c) => {
 
 app.post('/api/classes/:classId/activities', async (c) => {
   const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
   const body = await c.req.json<{
     name: string
     score_delta?: number
@@ -592,41 +809,33 @@ app.post('/api/classes/:classId/activities', async (c) => {
     `select=sort_order&class_id=eq.${classId}&order=sort_order.desc&limit=1`,
   )
   const nextOrder = (existing[0]?.sort_order || 0) + 1
+  const score = body.is_custom_input ? 0 : Number(body.score_delta ?? body.score ?? 0)
 
-  const score = body.is_custom_input
-    ? 0
-    : Number(body.score_delta ?? body.score ?? 0)
-
-  const inserted = await sb.insert<ActivityRow>(
-    'activities',
-    [{
-      class_id: classId,
-      name: body.name,
-      score,
-      sort_order: nextOrder,
-    }],
-  )
-
+  const inserted = await sb.insert<ActivityRow>('activities', [{
+    class_id: classId,
+    name: body.name,
+    score,
+    sort_order: nextOrder,
+  }])
   return c.json({ success: true, id: inserted[0]?.id })
 })
 
 app.put('/api/activities/:id', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedActivity(c, id)
+  if (result instanceof Response) return result
+
   const body = await c.req.json<{
     name?: string
     score_delta?: number
     score?: number
   }>()
   const sb = makeSupabase(c.env)
-
   const patch: Record<string, any> = {}
   if (body.name !== undefined) patch.name = body.name
   if (body.score_delta !== undefined) patch.score = Number(body.score_delta)
   else if (body.score !== undefined) patch.score = Number(body.score)
-
-  if (Object.keys(patch).length === 0) {
-    return c.json({ success: true, no_changes: true })
-  }
+  if (Object.keys(patch).length === 0) return c.json({ success: true, no_changes: true })
 
   await sb.update('activities', patch, `id=eq.${id}`, false)
   return c.json({ success: true })
@@ -634,6 +843,9 @@ app.put('/api/activities/:id', async (c) => {
 
 app.delete('/api/activities/:id', async (c) => {
   const id = c.req.param('id')
+  const result = await loadOwnedActivity(c, id)
+  if (result instanceof Response) return result
+
   const sb = makeSupabase(c.env)
   await sb.delete('activities', `id=eq.${id}`)
   return c.json({ success: true })

@@ -3,43 +3,222 @@
 // =================================================================
 
 const state = {
-  classId: null,            // Supabase UUID. 부팅 시 /api/bootstrap에서 로드
+  classId: null,            // 내 학급 UUID (로그인 후 /api/my-class 에서 로드)
   className: '클업',
   view: 'list',             // list | detail | logs | settings
   currentStudentId: null,
   students: [],
   levelTable: [],
-  activities: [],           // 점수 부여 활동 목록 (Supabase)
-  settingsTab: 'activities',// 'activities' | 'skills'
+  activities: [],
+  settingsTab: 'activities',
   booted: false,
+
+  // === Auth 상태 ===
+  authReady: false,
+  authConfig: null,         // { supabase_url, supabase_key }
+  authToken: null,          // access_token (JWT)
+  authRefreshToken: null,
+  authEmail: null,
+  authExpiresAt: null,      // 초 단위 epoch
 }
 
-// 부팅: 기본 학급 ID 로드
-async function bootstrap() {
-  if (state.booted) return
+const AUTH_STORAGE_KEY = 'classup_auth_v1'
+
+// ==============================
+// Auth 세션 저장/복원
+// ==============================
+function saveAuthSession() {
+  if (!state.authToken) {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+    return
+  }
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    access_token: state.authToken,
+    refresh_token: state.authRefreshToken,
+    email: state.authEmail,
+    expires_at: state.authExpiresAt,
+  }))
+}
+
+function loadAuthSession() {
   try {
-    const data = await api('/api/bootstrap')
-    state.classId = (data.class && data.class.id) || data.default_class_id
-    if (data.class && data.class.name) state.className = data.class.name
-    state.booted = true
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!raw) return false
+    const s = JSON.parse(raw)
+    if (!s.access_token) return false
+    state.authToken = s.access_token
+    state.authRefreshToken = s.refresh_token || null
+    state.authEmail = s.email || null
+    state.authExpiresAt = s.expires_at || null
+    return true
+  } catch {
+    return false
+  }
+}
+
+function clearAuthSession() {
+  state.authToken = null
+  state.authRefreshToken = null
+  state.authEmail = null
+  state.authExpiresAt = null
+  state.classId = null
+  state.className = '클업'
+  state.booted = false
+  state.students = []
+  state.activities = []
+  state.levelTable = []
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+// ==============================
+// Supabase Auth 직접 호출 (REST)
+// ==============================
+async function loadAuthConfig() {
+  if (state.authConfig) return state.authConfig
+  const res = await fetch('/api/public-config')
+  if (!res.ok) throw new Error('Supabase 설정을 불러오지 못했습니다')
+  state.authConfig = await res.json()
+  return state.authConfig
+}
+
+async function supabaseAuthCall(path, body) {
+  const cfg = await loadAuthConfig()
+  const url = cfg.supabase_url.replace(/\/+$/, '') + path
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: cfg.supabase_key,
+    },
+    body: JSON.stringify(body),
+  })
+  const text = await res.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
+  if (!res.ok) {
+    const msg = (data && (data.msg || data.error_description || data.error || data.message)) || `HTTP ${res.status}`
+    throw new Error(translateAuthError(msg))
+  }
+  return data
+}
+
+function translateAuthError(msg) {
+  const m = String(msg || '')
+  if (/Invalid login credentials/i.test(m)) return '이메일 또는 비밀번호가 올바르지 않습니다'
+  if (/User already registered/i.test(m)) return '이미 가입된 이메일입니다'
+  if (/Password should be at least/i.test(m)) return '비밀번호는 최소 6자 이상이어야 합니다'
+  if (/email.*invalid/i.test(m)) return '올바른 이메일 형식이 아닙니다'
+  if (/rate limit/i.test(m)) return '잠시 후 다시 시도해주세요 (요청이 너무 많아요)'
+  return m
+}
+
+async function signUp(email, password) {
+  const data = await supabaseAuthCall('/auth/v1/signup', { email, password })
+  // 이메일 확인이 꺼져있으면 session이 즉시 반환됨
+  if (data && data.access_token) {
+    applyAuthData(data)
+    return { signedIn: true }
+  }
+  return { signedIn: false, needsEmailConfirm: true }
+}
+
+async function signIn(email, password) {
+  const data = await supabaseAuthCall('/auth/v1/token?grant_type=password', {
+    email, password,
+  })
+  applyAuthData(data)
+  return { signedIn: true }
+}
+
+async function signOut() {
+  const token = state.authToken
+  if (token) {
+    try {
+      const cfg = await loadAuthConfig()
+      await fetch(cfg.supabase_url.replace(/\/+$/, '') + '/auth/v1/logout', {
+        method: 'POST',
+        headers: {
+          apikey: cfg.supabase_key,
+          Authorization: `Bearer ${token}`,
+        },
+      })
+    } catch {}
+  }
+  clearAuthSession()
+}
+
+function applyAuthData(data) {
+  state.authToken = data.access_token
+  state.authRefreshToken = data.refresh_token || null
+  state.authEmail = (data.user && data.user.email) || null
+  state.authExpiresAt = data.expires_at || (Math.floor(Date.now() / 1000) + (data.expires_in || 3600))
+  saveAuthSession()
+}
+
+async function tryRefreshToken() {
+  if (!state.authRefreshToken) return false
+  try {
+    const data = await supabaseAuthCall('/auth/v1/token?grant_type=refresh_token', {
+      refresh_token: state.authRefreshToken,
+    })
+    applyAuthData(data)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ==============================
+// 부팅: 내 학급 로드
+// ==============================
+async function bootstrap() {
+  if (state.booted) return { ok: true }
+  try {
+    const data = await api('/api/my-class')
+    if (data.my_class) {
+      state.classId = data.my_class.id
+      state.className = data.my_class.name || '클업'
+      state.booted = true
+      return { ok: true, hasClass: true }
+    }
+    // 학급 없음 → 온보딩
+    return { ok: true, hasClass: false, claimable: data.claimable_classes || [] }
   } catch (e) {
     console.error('bootstrap failed', e)
-    showToast('Supabase 연결 실패: ' + e.message, 'error')
+    if (e.code === 'NO_AUTH' || e.code === 'INVALID_TOKEN') {
+      clearAuthSession()
+      return { ok: false, needsLogin: true }
+    }
+    showToast('서버 연결 실패: ' + e.message, 'error')
     throw e
   }
 }
 
 // ==============================
-// API 헬퍼
+// API 헬퍼 (Authorization 자동 첨부 + 401 재시도)
 // ==============================
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  })
+  return apiInner(path, opts, true)
+}
+
+async function apiInner(path, opts, allowRetry) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(opts.headers || {}),
+  }
+  if (state.authToken) headers.Authorization = `Bearer ${state.authToken}`
+
+  const res = await fetch(path, { ...opts, headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    if (res.status === 401 && allowRetry) {
+      const refreshed = await tryRefreshToken()
+      if (refreshed) return apiInner(path, opts, false)
+    }
+    const e = new Error(err.error || `HTTP ${res.status}`)
+    e.code = err.code
+    e.status = res.status
+    throw e
   }
   return res.json()
 }
@@ -457,12 +636,22 @@ async function renderList() {
 
   const main = document.getElementById('main-view')
 
+  const className = escapeHtml(state.className || '클업')
+
   if (students.length === 0) {
     main.innerHTML = `
       <div class="view-container">
-        <div class="empty-state">아직 학생이 없습니다.</div>
+        <div class="view-title">
+          <span>🏰</span> ${className}
+          <button class="btn-add-student" id="btn-add-student">+ 학생 추가</button>
+        </div>
+        <div class="empty-state">
+          아직 학생이 없어요.<br/>
+          오른쪽 위 <strong>+ 학생 추가</strong> 버튼으로 첫 번째 학생을 등록해보세요!
+        </div>
       </div>
     `
+    document.getElementById('btn-add-student').onclick = showAddStudentModal
     return
   }
 
@@ -490,19 +679,63 @@ async function renderList() {
   main.innerHTML = `
     <div class="view-container">
       <div class="view-title">
-        <span>🏰</span> 우리 반 친구들
-        <span style="margin-left:auto; font-size:14px; color:var(--text-light); font-weight:normal;">${students.length}명</span>
+        <span>🏰</span> ${className}
+        <span class="class-meta">${students.length}명</span>
+        <button class="btn-add-student" id="btn-add-student">+ 학생</button>
       </div>
       <div class="student-grid">${cards}</div>
     </div>
   `
 
+  document.getElementById('btn-add-student').onclick = showAddStudentModal
+
   main.querySelectorAll('.student-card').forEach(card => {
     card.addEventListener('click', () => {
-      const id = card.dataset.id // UUID string
+      const id = card.dataset.id
       navigate('detail', { studentId: id })
     })
   })
+}
+
+// 학생 추가 모달
+function showAddStudentModal() {
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">👤 학생 추가</div>
+        <form id="add-student-form" class="add-student-form">
+          <label class="auth-label">
+            <span>학생 이름</span>
+            <input type="text" id="add-student-name" required maxlength="20" placeholder="예: 김민준" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="btn-cancel" id="add-student-cancel">취소</button>
+            <button type="submit" class="btn-confirm">추가</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `
+  const input = document.getElementById('add-student-name')
+  setTimeout(() => input.focus(), 50)
+  document.getElementById('add-student-cancel').onclick = () => container.innerHTML = ''
+  document.getElementById('add-student-form').onsubmit = async (e) => {
+    e.preventDefault()
+    const name = input.value.trim()
+    if (!name) return
+    try {
+      await api(`/api/classes/${state.classId}/students`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      })
+      container.innerHTML = ''
+      showToast(`${name} 학생이 추가되었어요!`, 'success', '👤')
+      await renderList()
+    } catch (err) {
+      showToast(err.message, 'error')
+    }
+  }
 }
 
 // ==============================
@@ -1090,17 +1323,252 @@ async function renderSkillsSettings() {
 }
 
 // ==============================
-// 헤더 버튼
+// 로그인 / 회원가입 화면
 // ==============================
-document.addEventListener('DOMContentLoaded', async () => {
+function showAuthScreen(opts = {}) {
+  document.getElementById('app-header').style.display = 'none'
+  document.getElementById('modal-container').innerHTML = ''
+
+  const mode = opts.mode || 'signin' // 'signin' | 'signup'
+  const mainView = document.getElementById('main-view')
+  mainView.innerHTML = `
+    <div class="auth-screen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo">🎮</div>
+          <div class="auth-brand-name">
+            <span class="brand-ko">클업</span>
+            <span class="brand-en">CLASS UP</span>
+          </div>
+          <div class="auth-tagline">우리 반 RPG 학급경영</div>
+        </div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab ${mode === 'signin' ? 'active' : ''}" data-mode="signin">로그인</button>
+          <button class="auth-tab ${mode === 'signup' ? 'active' : ''}" data-mode="signup">회원가입</button>
+        </div>
+
+        <form class="auth-form" id="auth-form">
+          <label class="auth-label">
+            <span>이메일</span>
+            <input type="email" id="auth-email" required autocomplete="email"
+                   placeholder="teacher@example.com" />
+          </label>
+          <label class="auth-label">
+            <span>비밀번호 ${mode === 'signup' ? '<small>(6자 이상)</small>' : ''}</span>
+            <input type="password" id="auth-password" required
+                   autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}"
+                   placeholder="••••••" minlength="6" />
+          </label>
+
+          <button type="submit" class="auth-submit" id="auth-submit">
+            ${mode === 'signin' ? '로그인' : '회원가입 후 시작'}
+          </button>
+          <div class="auth-error" id="auth-error" style="display:none;"></div>
+        </form>
+
+        <div class="auth-footer">
+          ${mode === 'signin'
+            ? '아직 계정이 없으신가요? <button class="auth-link" data-switch="signup">회원가입</button>'
+            : '이미 계정이 있으신가요? <button class="auth-link" data-switch="signin">로그인</button>'}
+        </div>
+      </div>
+    </div>
+  `
+
+  mainView.querySelectorAll('.auth-tab').forEach(btn => {
+    btn.onclick = () => showAuthScreen({ mode: btn.dataset.mode })
+  })
+  mainView.querySelectorAll('[data-switch]').forEach(btn => {
+    btn.onclick = () => showAuthScreen({ mode: btn.dataset.switch })
+  })
+
+  const form = document.getElementById('auth-form')
+  const errBox = document.getElementById('auth-error')
+  const submitBtn = document.getElementById('auth-submit')
+
+  form.onsubmit = async (e) => {
+    e.preventDefault()
+    errBox.style.display = 'none'
+    const email = document.getElementById('auth-email').value.trim().toLowerCase()
+    const password = document.getElementById('auth-password').value
+    if (!email || !password) return
+
+    submitBtn.disabled = true
+    submitBtn.textContent = '잠시만요...'
+    try {
+      if (mode === 'signup') {
+        const r = await signUp(email, password)
+        if (r.signedIn) {
+          await afterLogin()
+        } else {
+          errBox.textContent = '가입 완료! 이메일 확인이 필요할 수 있어요. 이메일 확인 후 로그인해주세요.'
+          errBox.style.display = 'block'
+          submitBtn.disabled = false
+          submitBtn.textContent = mode === 'signin' ? '로그인' : '회원가입 후 시작'
+        }
+      } else {
+        await signIn(email, password)
+        await afterLogin()
+      }
+    } catch (err) {
+      errBox.textContent = err.message || '로그인 실패'
+      errBox.style.display = 'block'
+      submitBtn.disabled = false
+      submitBtn.textContent = mode === 'signin' ? '로그인' : '회원가입 후 시작'
+    }
+  }
+}
+
+// 로그인/세션복원 성공 후 부트스트랩 → 학급 있으면 list, 없으면 온보딩
+async function afterLogin() {
+  const result = await bootstrap()
+  if (!result.ok && result.needsLogin) {
+    showAuthScreen()
+    return
+  }
+  if (result.hasClass) {
+    showAppShell()
+    navigate('list')
+  } else {
+    showOnboarding(result.claimable || [])
+  }
+}
+
+function showAppShell() {
+  const header = document.getElementById('app-header')
+  header.style.display = ''
+  // 로그아웃 버튼 바인딩 (중복 바인딩 방지를 위해 매번 재할당)
   document.getElementById('nav-logs').onclick = () => navigate('logs')
   document.getElementById('nav-settings').onclick = () => navigate('settings')
   document.getElementById('header-title').onclick = () => navigate('list')
-
-  try {
-    await bootstrap()
-    navigate('list')
-  } catch (e) {
-    // bootstrap에서 이미 토스트 처리됨
+  document.getElementById('nav-logout').onclick = async () => {
+    if (!confirm(`${state.authEmail || ''} 계정에서 로그아웃 하시겠습니까?`)) return
+    await signOut()
+    showAuthScreen({ mode: 'signin' })
   }
+}
+
+// ==============================
+// 온보딩: 학급 없을 때
+// ==============================
+function showOnboarding(claimable) {
+  document.getElementById('app-header').style.display = 'none'
+  const mainView = document.getElementById('main-view')
+
+  const claimableHtml = (claimable && claimable.length > 0)
+    ? `
+      <div class="onboard-section">
+        <div class="onboard-section-title">기존 학급 가져오기</div>
+        <div class="onboard-section-desc">아직 주인이 없는 학급이에요. 이미 만들어 둔 학급이 있다면 내 학급으로 가져올 수 있어요.</div>
+        <div class="onboard-claim-list">
+          ${claimable.map(c => `
+            <div class="onboard-claim-item">
+              <div class="onboard-claim-name">${escapeHtml(c.name)}</div>
+              <button class="btn-claim" data-class-id="${c.id}">이 학급 가져오기</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+    : ''
+
+  mainView.innerHTML = `
+    <div class="onboard-screen">
+      <div class="onboard-card">
+        <div class="onboard-welcome">
+          <div class="onboard-logo">🎮</div>
+          <div class="onboard-title">환영합니다, 선생님!</div>
+          <div class="onboard-email">${escapeHtml(state.authEmail || '')}</div>
+        </div>
+
+        <div class="onboard-section">
+          <div class="onboard-section-title">새 학급 만들기</div>
+          <div class="onboard-section-desc">학급 이름을 입력하고 시작하세요. 예: 클업 5-2</div>
+          <form id="onboard-create-form" class="onboard-create-form">
+            <input type="text" id="onboard-class-name" placeholder="학급 이름 (예: 클업 5-2)" maxlength="40" required />
+            <button type="submit" class="btn-onboard-create">학급 만들기</button>
+          </form>
+        </div>
+
+        ${claimableHtml}
+
+        <div class="onboard-footer">
+          <button class="auth-link" id="onboard-logout">다른 계정으로 로그인</button>
+        </div>
+      </div>
+    </div>
+  `
+
+  const form = document.getElementById('onboard-create-form')
+  form.onsubmit = async (e) => {
+    e.preventDefault()
+    const name = document.getElementById('onboard-class-name').value.trim()
+    if (!name) return
+    const btn = form.querySelector('button[type=submit]')
+    btn.disabled = true
+    btn.textContent = '만드는 중...'
+    try {
+      const r = await api('/api/classes', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      })
+      state.classId = r.class.id
+      state.className = r.class.name
+      state.booted = true
+      showAppShell()
+      navigate('list')
+      showToast(`'${r.class.name}' 학급이 만들어졌어요!`, 'success', '🎉')
+    } catch (err) {
+      showToast(err.message, 'error')
+      btn.disabled = false
+      btn.textContent = '학급 만들기'
+    }
+  }
+
+  // 학급 가져오기
+  mainView.querySelectorAll('.btn-claim').forEach(btn => {
+    btn.onclick = async () => {
+      const classId = btn.dataset.classId
+      if (!confirm('이 학급을 내 학급으로 가져옵니다. 계속할까요?')) return
+      btn.disabled = true
+      btn.textContent = '가져오는 중...'
+      try {
+        const r = await api(`/api/classes/${classId}/claim`, { method: 'POST' })
+        state.classId = r.class.id
+        state.className = r.class.name
+        state.booted = true
+        showAppShell()
+        navigate('list')
+        showToast(`'${r.class.name}' 학급을 가져왔어요!`, 'success', '🎉')
+      } catch (err) {
+        showToast(err.message, 'error')
+        btn.disabled = false
+        btn.textContent = '이 학급 가져오기'
+      }
+    }
+  })
+
+  document.getElementById('onboard-logout').onclick = async () => {
+    await signOut()
+    showAuthScreen({ mode: 'signin' })
+  }
+}
+
+// ==============================
+// 헤더 버튼 & 진입점
+// ==============================
+document.addEventListener('DOMContentLoaded', async () => {
+  // 세션 복원 시도
+  const hasSession = loadAuthSession()
+  if (hasSession) {
+    try {
+      await afterLogin()
+      return
+    } catch (e) {
+      // 세션 만료 등
+      clearAuthSession()
+    }
+  }
+  showAuthScreen({ mode: 'signin' })
 })

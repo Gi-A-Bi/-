@@ -8,6 +8,13 @@ export type Bindings = {
   DEFAULT_CLASS_ID: string
 }
 
+// Hono Variables (요청 컨텍스트에 미들웨어가 채워주는 값)
+export type Variables = {
+  email: string         // 로그인한 선생님 이메일 (소문자)
+  userId: string        // Supabase Auth user id
+  classOwnerVerified?: true   // 라우트 핸들러 안에서 owner 검증을 통과했는지 마킹용
+}
+
 // ----- Supabase 테이블 row 타입 -----
 export interface ClassRow {
   id: string
