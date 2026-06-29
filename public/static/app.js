@@ -231,10 +231,21 @@ function getInitial(name) {
   return name.trim().charAt(0)
 }
 
-// 아바타 내용: 이모지가 있으면 이모지, 없으면 이름 첫 글자
+// 아바타 내용: 사진 > 이모지 > 이름 첫 글자
+//   - 사진: avatar_image (data:image/jpeg;base64,...)
+//   - 이모지: avatar_emoji
+//   - 그 외: 이름 첫 글자
 function avatarContent(student) {
+  if (student.avatar_image) {
+    return `<img src="${student.avatar_image}" alt="" class="avatar-img" draggable="false" />`
+  }
   if (student.avatar_emoji) return student.avatar_emoji
   return escapeHtml(getInitial(student.name))
+}
+
+// 학생이 사진을 가지고 있으면 true (배경 그라데이션 숨김용)
+function hasAvatarImage(student) {
+  return !!(student && student.avatar_image)
 }
 
 // 표시 이름: 닉네임이 있으면 우선, 본명은 작게 함께 노출
@@ -322,17 +333,94 @@ function formatTime(iso) {
   return `${mm}/${dd} ${hh}:${mi}`
 }
 
-function activityEmoji(name) {
-  if (name.includes('숙제')) return '📝'
-  if (name.includes('출석')) return '✅'
-  if (name.includes('아침 독서') || name.includes('독서')) return '📚'
-  if (name.includes('친구 돕기') || name.includes('돕기')) return '🤝'
-  if (name.includes('폭풍 칭찬') || name.includes('칭찬')) return '🌟'
-  if (name.includes('벌점')) return '⚠️'
-  if (name.includes('레벨') && name.includes('달성')) return '🎉'
-  if (name.includes('스킬 사용')) return '✨'
-  if (name.includes('선택')) return '🎁'
-  return '📌'
+// 활동(점수 버튼) 이모지 라이브러리 — 카테고리별 100+ 개
+// 교사가 자유롭게 골라서 활동에 붙일 수 있다.
+const ACTIVITY_EMOJI_LIBRARY = [
+  {
+    label: '학습·과제',
+    emojis: ['📝','📚','📖','✏️','🖊️','📓','📔','📒','📑','🧮','🔬','🔭','📐','📏','🗒️','📎','📌','🧾','🧠','💡'],
+  },
+  {
+    label: '발표·태도',
+    emojis: ['🎤','🙋','🙋‍♀️','🙋‍♂️','👋','🙇','🙇‍♀️','🙇‍♂️','🤝','👏','👍','👌','✋','💬','🗣️','👥','👀','🫶','💯','✨'],
+  },
+  {
+    label: '예체능',
+    emojis: ['🎨','🖌️','🎭','🎵','🎶','🎹','🎸','🥁','🎺','🎻','🎬','📷','⚽','🏀','🏐','⚾','🏸','🏓','🤸','🏃'],
+  },
+  {
+    label: '리더십·협동',
+    emojis: ['👑','🏆','🥇','🥈','🥉','🎖️','🏅','🧑‍🏫','🧩','🤲','💪','🌟','⭐','🔝','🚀','🗺️','🧭','🛡️','⚔️','🔥'],
+  },
+  {
+    label: '생활·정리',
+    emojis: ['🧹','🧼','🧽','🪥','🧺','♻️','🗑️','📅','📆','⏰','🕐','🪑','🎒','👟','👕','🧤','🦷','🍱','🥛','🍎'],
+  },
+  {
+    label: '감정·칭찬',
+    emojis: ['😀','😄','😊','🥰','😎','🤩','🥳','😇','🤓','🌈','🍀','🌸','🌻','💐','🎁','🎉','🎊','💖','💝','🌟'],
+  },
+  {
+    label: '주의·감점',
+    emojis: ['⚠️','❌','🚫','😅','😢','😭','😡','💢','🛑','⏳','😴','🙊','🙉','🙈','🫥','🪫','📵','🔕','🥲','🆘'],
+  },
+  {
+    label: '기타',
+    emojis: ['➕','➖','✅','☑️','🆗','🔄','🆕','❗','❓','💭','🎯','🎲','🃏','🎟️','🎫','🪄','🔮','🧿','🌍','🪐'],
+  },
+]
+
+// 활동명 → 자동 추천 이모지 (규칙 기반). 정확한 매칭 없으면 NULL을 반환할 수도 있게 처리.
+const ACTIVITY_EMOJI_RULES = [
+  [/숙제|과제/, '📝'],
+  [/출석|등교/, '✅'],
+  [/지각/, '⏰'],
+  [/결석/, '🪑'],
+  [/독서|책 읽기|아침 독서/, '📚'],
+  [/친구.*돕|돕기|도움|도와/, '🤝'],
+  [/칭찬|쩐다|훌륭|폭풍|최고/, '🌟'],
+  [/벌점|감점/, '⚠️'],
+  [/발표|말하기|손들기/, '🎤'],
+  [/청소|정리|정돈/, '🧹'],
+  [/인사|예의|존중/, '👋'],
+  [/그림|미술|색칠/, '🎨'],
+  [/노래|음악|악기/, '🎵'],
+  [/체육|운동|달리기/, '⚽'],
+  [/수학|문제|연산/, '🧮'],
+  [/영어|단어/, '🔤'],
+  [/과학|실험|관찰/, '🔬'],
+  [/한자|국어|글쓰기|일기/, '✏️'],
+  [/리더|반장|모범/, '👑'],
+  [/멘토|가르치/, '🧑‍🏫'],
+  [/도전|모험|용기/, '🗺️'],
+  [/협동|모둠|팀워크/, '🧩'],
+  [/준비물|미비|놓고 옴/, '🎒'],
+  [/방해|떠들|소란/, '🚫'],
+  [/거짓말|험담/, '🙊'],
+  [/직접|기타|커스텀|자유 입력/, '✏️'],
+  [/레벨.*달성/, '🎉'],
+  [/스킬 사용/, '✨'],
+  [/선택/, '🎁'],
+]
+
+// 활동 객체 또는 활동명을 받아 보여줄 이모지를 결정
+// - 객체일 때: emoji 컬럼이 있으면 그것을, 없으면 이름 기반 추천
+// - 문자열일 때: 이름 기반 추천만 (백워드 호환)
+function activityEmoji(input) {
+  if (input && typeof input === 'object') {
+    if (input.emoji) return input.emoji
+    return suggestActivityEmoji(input.name || '') || '📌'
+  }
+  const name = String(input || '')
+  return suggestActivityEmoji(name) || '📌'
+}
+
+function suggestActivityEmoji(name) {
+  if (!name) return null
+  for (const [re, em] of ACTIVITY_EMOJI_RULES) {
+    if (re.test(name)) return em
+  }
+  return null
 }
 
 function skillEmoji(name) {
@@ -448,25 +536,33 @@ function showNicknameEditor(student) {
   }
 }
 
-// 아바타 꾸미기 모달 (이모지 + 색상 팔레트)
+// 아바타 꾸미기 모달 (이모지 / 사진 / 색상 — 3가지 선택)
+//  - 사진(avatar_image)이 설정되어 있으면 그것을 우선 표시
+//  - 사진을 지우면 이모지/이름 첫글자로 자동 fallback
 function showAvatarPicker(student) {
   const container = document.getElementById('modal-container')
   let pickedEmoji = student.avatar_emoji || ''
   let pickedColor = student.avatar_color || avatarColor(student)
+  let pickedImage = student.avatar_image || ''   // data URL or ''
+  let tab = pickedImage ? 'photo' : 'emoji'      // 'emoji' | 'photo'
 
   function previewHtml() {
+    const hasImg = !!pickedImage
+    const cls = hasImg ? 'avatar-photo' : (pickedEmoji ? 'avatar-emoji' : '')
+    const bg = hasImg ? '' : `background: linear-gradient(135deg, ${pickedColor}, ${pickedColor}cc);`
+    const content = hasImg
+      ? `<img src="${pickedImage}" alt="" class="avatar-img" draggable="false" />`
+      : (pickedEmoji ? pickedEmoji : escapeHtml(getInitial(student.name)))
     return `
-      <div class="avatar avatar-lg ${pickedEmoji ? 'avatar-emoji' : ''}"
-           id="avatar-preview"
-           style="background: linear-gradient(135deg, ${pickedColor}, ${pickedColor}cc);">
-        ${pickedEmoji ? pickedEmoji : escapeHtml(getInitial(student.name))}
+      <div class="avatar avatar-lg ${cls}" id="avatar-preview" style="${bg}">
+        ${content}
       </div>
     `
   }
 
   function emojiGridHtml() {
     return AVATAR_EMOJIS.map(em => `
-      <button class="emoji-pick ${em === pickedEmoji ? 'active' : ''}" data-emoji="${em}">${em}</button>
+      <button class="emoji-pick ${em === pickedEmoji && !pickedImage ? 'active' : ''}" data-emoji="${em}">${em}</button>
     `).join('')
   }
 
@@ -477,6 +573,48 @@ function showAvatarPicker(student) {
     `).join('')
   }
 
+  function tabBodyHtml() {
+    if (tab === 'photo') {
+      return `
+        <div class="picker-section">
+          <div class="picker-label">사진</div>
+          <div class="hint-text" style="margin-bottom:8px;">
+            정사각형으로 자동 크롭(중앙)되고 200×200으로 줄여서 저장돼요. (개인정보 보호상 필요한 사진만 올려주세요)
+          </div>
+          <label class="avatar-photo-drop" id="photo-drop">
+            <input type="file" id="photo-input" accept="image/*" hidden />
+            <div class="avatar-photo-drop-inner">
+              <i class="fa-solid fa-image"></i>
+              <div class="file-drop-label">사진 선택</div>
+              <div class="file-drop-name">파일을 선택하거나 여기로 드래그</div>
+            </div>
+          </label>
+          ${pickedImage ? `
+            <button class="btn-mini danger" id="photo-clear" style="margin-top:10px;">
+              <i class="fa-solid fa-xmark"></i> 사진 제거
+            </button>
+          ` : ''}
+        </div>
+      `
+    }
+    return `
+      <div class="picker-section">
+        <div class="picker-label">캐릭터(이모지)</div>
+        <div class="emoji-grid">
+          <button class="emoji-pick ${!pickedEmoji && !pickedImage ? 'active' : ''}" data-emoji="">
+            <span style="font-size:14px; color:var(--text-light);">없음</span>
+          </button>
+          ${emojiGridHtml()}
+        </div>
+      </div>
+
+      <div class="picker-section">
+        <div class="picker-label">배경 색</div>
+        <div class="color-grid">${colorGridHtml()}</div>
+      </div>
+    `
+  }
+
   function render() {
     container.innerHTML = `
       <div class="modal-backdrop">
@@ -484,19 +622,17 @@ function showAvatarPicker(student) {
           <div class="modal-title">🎨 아바타 꾸미기</div>
           <div class="avatar-preview-wrap">${previewHtml()}</div>
 
-          <div class="picker-section">
-            <div class="picker-label">캐릭터</div>
-            <div class="emoji-grid">
-              <button class="emoji-pick ${!pickedEmoji ? 'active' : ''}" data-emoji="">
-                <span style="font-size:14px; color:var(--text-light);">없음</span>
-              </button>
-              ${emojiGridHtml()}
-            </div>
+          <div class="add-tabs" style="margin-bottom:14px;">
+            <button class="add-tab ${tab === 'emoji' ? 'active' : ''}" data-tab="emoji">
+              <i class="fa-solid fa-face-smile"></i> 이모지·색상
+            </button>
+            <button class="add-tab ${tab === 'photo' ? 'active' : ''}" data-tab="photo">
+              <i class="fa-solid fa-camera"></i> 사진 업로드
+            </button>
           </div>
 
-          <div class="picker-section">
-            <div class="picker-label">배경 색</div>
-            <div class="color-grid">${colorGridHtml()}</div>
+          <div class="add-tab-body">
+            ${tabBodyHtml()}
           </div>
 
           <div class="modal-actions">
@@ -507,18 +643,42 @@ function showAvatarPicker(student) {
       </div>
     `
 
-    container.querySelectorAll('.emoji-pick').forEach(btn => {
-      btn.onclick = () => {
-        pickedEmoji = btn.dataset.emoji
-        render()
-      }
+    container.querySelectorAll('.add-tab').forEach(b => {
+      b.onclick = () => { tab = b.dataset.tab; render() }
     })
-    container.querySelectorAll('.color-pick').forEach(btn => {
-      btn.onclick = () => {
-        pickedColor = btn.dataset.color
-        render()
+
+    if (tab === 'emoji') {
+      container.querySelectorAll('.emoji-pick').forEach(btn => {
+        btn.onclick = () => {
+          pickedEmoji = btn.dataset.emoji
+          pickedImage = ''   // 이모지를 고르면 사진은 비움 (한 가지만 사용)
+          render()
+        }
+      })
+      container.querySelectorAll('.color-pick').forEach(btn => {
+        btn.onclick = () => {
+          pickedColor = btn.dataset.color
+          render()
+        }
+      })
+    } else {
+      const fi = document.getElementById('photo-input')
+      const drop = document.getElementById('photo-drop')
+      fi.onchange = () => handlePhoto(fi.files?.[0])
+      drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('drag-over') }
+      drop.ondragleave = () => drop.classList.remove('drag-over')
+      drop.ondrop = (e) => {
+        e.preventDefault()
+        drop.classList.remove('drag-over')
+        handlePhoto(e.dataTransfer.files?.[0])
       }
-    })
+      const clr = document.getElementById('photo-clear')
+      if (clr) clr.onclick = () => {
+        pickedImage = ''
+        render()
+        showToast('사진을 제거했어요. 저장 버튼을 눌러야 반영돼요.', 'success', '🧽')
+      }
+    }
 
     document.getElementById('modal-cancel').onclick = () => container.innerHTML = ''
     document.getElementById('modal-confirm').onclick = async () => {
@@ -526,8 +686,9 @@ function showAvatarPicker(student) {
         await api(`/api/students/${student.id}/profile`, {
           method: 'PUT',
           body: JSON.stringify({
-            avatar_emoji: pickedEmoji || null,
+            avatar_emoji: pickedImage ? null : (pickedEmoji || null),
             avatar_color: pickedColor,
+            avatar_image: pickedImage || null,
           }),
         })
         container.innerHTML = ''
@@ -539,7 +700,73 @@ function showAvatarPicker(student) {
     }
   }
 
+  // 사진 파일을 받아서 200x200 정사각형으로 중앙 크롭 + JPEG 압축
+  async function handlePhoto(file) {
+    if (!file) return
+    if (!/^image\//.test(file.type)) {
+      showToast('이미지 파일만 올릴 수 있어요', 'error')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('파일이 너무 커요 (최대 10MB)', 'error')
+      return
+    }
+    try {
+      const dataUrl = await compressImageToSquare(file, 200, 0.82)
+      // 너무 큰 결과는 다시 한 번 더 압축
+      let finalUrl = dataUrl
+      if (finalUrl.length > 200_000) finalUrl = await compressImageToSquare(file, 180, 0.7)
+      if (finalUrl.length > 200_000) finalUrl = await compressImageToSquare(file, 160, 0.6)
+      pickedImage = finalUrl
+      pickedEmoji = ''   // 사진을 올리면 이모지는 비움 (실제로 표시될 때 사진이 우선이긴 함)
+      render()
+      showToast('사진을 불러왔어요. 저장 버튼을 누르면 반영돼요!', 'success', '📷')
+    } catch (e) {
+      console.error(e)
+      showToast('사진을 처리하지 못했어요', 'error')
+    }
+  }
+
   render()
+}
+
+// 이미지 파일을 정사각형(size×size)으로 중앙 크롭 + JPEG 압축
+// → data URL 반환 (전역 헬퍼 — 어디서든 재사용 가능)
+function compressImageToSquare(file, size = 200, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        // 중앙 정사각형 크롭
+        const side = Math.min(img.naturalWidth, img.naturalHeight)
+        const sx = (img.naturalWidth - side) / 2
+        const sy = (img.naturalHeight - side) / 2
+
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        // 부드러운 다운스케일
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size)
+
+        URL.revokeObjectURL(url)
+        // JPEG로 변환 (PNG보다 훨씬 작음)
+        const dataUrl = canvas.toDataURL('image/jpeg', quality)
+        resolve(dataUrl)
+      } catch (e) {
+        URL.revokeObjectURL(url)
+        reject(e)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('이미지를 불러오지 못했어요'))
+    }
+    img.src = url
+  })
 }
 
 // 특별 점수 부여: 점수 + 사유 직접 입력
@@ -658,10 +885,13 @@ async function renderList() {
   const cards = students.map(s => {
     const rank = rankInfo(s.rank)
     const pending = s.pending_choice_count > 0
+    const hasImg = hasAvatarImage(s)
+    const bgStyle = hasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
+    const avatarCls = hasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
     return `
       <div class="student-card ${pending ? 'has-pending' : ''}" data-id="${s.id}">
         ${pending ? `<div class="pending-badge">선택!</div>` : ''}
-        <div class="avatar ${s.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);">
+        <div class="avatar ${avatarCls}" style="${bgStyle}">
           ${avatarContent(s)}
         </div>
         ${displayNameHtml(s, { size: 'sm' })}
@@ -1018,9 +1248,9 @@ async function renderDetail(id) {
     hearts.push(`<span class="heart ${full ? 'full' : 'empty'}">${full ? '❤️' : '🩶'}</span>`)
   }
 
-  // 점수 버튼 (Supabase의 activities에서 로드. 이모지는 이름 기반 자동)
+  // 점수 버튼 (Supabase의 activities에서 로드. emoji 컬럼 > 이름 기반 자동)
   const scoreBtns = activities.map(a => {
-    const emoji = activityEmoji(a.name)
+    const emoji = activityEmoji(a)   // 객체를 통째로 → emoji 컬럼 우선
     if (a.is_custom_input) {
       return `
         <button class="score-btn custom" data-activity-id="${a.id}" data-custom="1" data-name="${escapeHtml(a.name)}">
@@ -1073,13 +1303,20 @@ async function renderDetail(id) {
   const passiveSkill = s.passive_skill || '없음'
 
   const main = document.getElementById('main-view')
+  const heroHasImg = hasAvatarImage(s)
+  const heroBgStyle = heroHasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
+  const heroAvatarCls = heroHasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
   main.innerHTML = `
     <div class="view-container">
       <!-- 캐릭터 헤로 -->
       <div class="detail-hero">
-        <button class="avatar avatar-lg ${s.avatar_emoji ? 'avatar-emoji' : ''}"
+        <button class="detail-hero-delete" id="student-delete-btn" title="학생 삭제" aria-label="학생 삭제">
+          <i class="fa-solid fa-trash-can"></i>
+          <span>학생 삭제</span>
+        </button>
+        <button class="avatar avatar-lg ${heroAvatarCls}"
                 id="avatar-edit-btn"
-                style="background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);"
+                style="${heroBgStyle}"
                 title="아바타 꾸미기">
           ${avatarContent(s)}
           <span class="avatar-edit-icon">✏️</span>
@@ -1156,6 +1393,23 @@ async function renderDetail(id) {
   // 이벤트 바인딩
   document.getElementById('avatar-edit-btn').onclick = () => showAvatarPicker(s)
   document.getElementById('nickname-edit-btn').onclick = () => showNicknameEditor(s)
+  document.getElementById('student-delete-btn').onclick = () => {
+    const displayName = s.nickname ? `${s.nickname} (${s.name})` : s.name
+    showConfirm(
+      `'${displayName}' 학생 삭제`,
+      `정말 이 학생을 삭제할까요?\n학생의 모든 활동 기록·보유 스킬·아바타도 함께 사라지며, 되돌릴 수 없어요.`,
+      async () => {
+        try {
+          await api(`/api/students/${s.id}`, { method: 'DELETE' })
+          showToast(`${displayName} 학생을 삭제했어요`, 'success', '🗑️')
+          state.activities = []  // 안전하게 캐시 초기화
+          navigate('list')
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
+    )
+  }
 
   main.querySelectorAll('.score-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1292,10 +1546,20 @@ async function renderLogs() {
     }
 
     const displayName = l.student_nickname || l.student_name
+    const logStudent = {
+      avatar_image: l.avatar_image,
+      avatar_emoji: l.avatar_emoji,
+      avatar_color: l.avatar_color,
+      id: l.student_id,
+      name: l.student_name,
+    }
+    const logHasImg = hasAvatarImage(logStudent)
+    const logCls = logHasImg ? 'avatar-photo' : (l.avatar_emoji ? 'avatar-emoji' : '')
+    const logBg = logHasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(logStudent)}, ${avatarColor(logStudent)}cc);`
     return `
       <div class="log-item">
-        <div class="log-avatar ${l.avatar_emoji ? 'avatar-emoji' : ''}" style="background: linear-gradient(135deg, ${avatarColor({ avatar_color: l.avatar_color, id: l.student_id })}, ${avatarColor({ avatar_color: l.avatar_color, id: l.student_id })}cc);">
-          ${l.avatar_emoji ? l.avatar_emoji : escapeHtml(getInitial(l.student_name))}
+        <div class="log-avatar ${logCls}" style="${logBg}">
+          ${avatarContent(logStudent)}
         </div>
         <div class="log-content">
           <div class="log-line1">
@@ -1373,25 +1637,33 @@ async function renderActivitiesSettings() {
   const activities = await api(`/api/classes/${state.classId}/activities`)
   state.activities = activities
 
-  const rows = activities.map(a => `
-    <div class="activity-edit-item ${a.is_custom_input ? 'custom' : ''}" data-id="${a.id}">
-      <div class="f-emoji" style="display:flex;align-items:center;justify-content:center;">${activityEmoji(a.name)}</div>
-      <input type="text" class="f-name" value="${escapeHtml(a.name)}" placeholder="활동명" />
-      ${a.is_custom_input
-        ? `<div class="custom-badge">직접 입력</div>`
-        : `<input type="number" class="f-delta" value="${a.score_delta}" placeholder="점수" />`
-      }
-      ${a.is_custom_input
-        ? `<button class="btn-mini" disabled style="opacity:0.4;cursor:not-allowed;">🗑</button>`
-        : `<button class="btn-mini danger delete-act-btn">🗑</button>`
-      }
-    </div>
-  `).join('')
+  // 각 활동 row를 그릴 때 emoji 컬럼(또는 자동 추천) 사용
+  // - 이모지 박스 클릭 → 이모지 피커 모달
+  // - 활동명 변경 시: emoji가 비어 있으면 새 이름으로 자동 추천된 이모지를 같이 저장
+  const rows = activities.map(a => {
+    const em = activityEmoji(a)
+    return `
+      <div class="activity-edit-item ${a.is_custom_input ? 'custom' : ''}" data-id="${a.id}" data-emoji="${escapeHtml(a.emoji || '')}">
+        <button type="button" class="f-emoji emoji-edit-btn" title="이모지 바꾸기" aria-label="이모지 바꾸기">${em}</button>
+        <input type="text" class="f-name" value="${escapeHtml(a.name)}" placeholder="활동명" />
+        ${a.is_custom_input
+          ? `<div class="custom-badge">직접 입력</div>`
+          : `<input type="number" class="f-delta" value="${a.score_delta}" placeholder="점수" />`
+        }
+        ${a.is_custom_input
+          ? `<button class="btn-mini" disabled style="opacity:0.4;cursor:not-allowed;">🗑</button>`
+          : `<button class="btn-mini danger delete-act-btn">🗑</button>`
+        }
+      </div>
+    `
+  }).join('')
 
   body.innerHTML = `
     <div class="activity-edit-list">${rows}</div>
     <button class="btn-add-level" id="add-activity">＋ 새 활동 추가</button>
     <div class="hint-text" style="margin-top:8px;">
+      💡 이모지를 누르면 100여 가지 중에서 바꿀 수 있어요.<br/>
+      활동명을 바꾸면 이름에 어울리는 이모지가 자동으로 추천돼요. (이미 직접 골랐다면 그대로 유지)<br/>
       입력 후 다른 곳을 누르면 자동 저장됩니다. (점수는 음수도 가능)
     </div>
   `
@@ -1404,16 +1676,27 @@ async function renderActivitiesSettings() {
       inp.addEventListener('blur', async () => {
         const name = item.querySelector('.f-name').value.trim()
         const deltaEl = item.querySelector('.f-delta')
-        const body = { name }
-        if (deltaEl) body.score_delta = Number(deltaEl.value) || 0
+        const payload = { name }
+        if (deltaEl) payload.score_delta = Number(deltaEl.value) || 0
         if (!name) {
           showToast('활동명을 입력해주세요', 'warning')
           return
         }
+        // 사용자가 이모지를 직접 안 골랐고(emoji 컬럼 NULL), 이름 변경으로 더 어울리는 이모지가 생기면 같이 저장
+        const currentEmoji = item.dataset.emoji  // DB에 저장된 emoji (없으면 '')
+        if (!currentEmoji) {
+          const suggested = suggestActivityEmoji(name)
+          if (suggested) {
+            payload.emoji = suggested
+            // 즉시 UI에도 반영
+            item.querySelector('.f-emoji').textContent = suggested
+            item.dataset.emoji = suggested
+          }
+        }
         try {
           await api(`/api/activities/${id}`, {
             method: 'PUT',
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
           })
           state.activities = [] // 캐시 무효화
           // 잔잔한 저장 피드백
@@ -1423,6 +1706,50 @@ async function renderActivitiesSettings() {
         } catch (e) {
           showToast(e.message, 'error')
         }
+      })
+    })
+  })
+
+  // 이모지 클릭 → 이모지 피커 모달
+  body.querySelectorAll('.emoji-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.activity-edit-item')
+      const id = item.dataset.id
+      const name = item.querySelector('.f-name').value
+      const currentEmoji = btn.textContent.trim()
+      showEmojiPicker({
+        title: `'${name || '활동'}' 이모지 고르기`,
+        current: currentEmoji,
+        onPick: async (newEmoji) => {
+          btn.textContent = newEmoji
+          item.dataset.emoji = newEmoji
+          try {
+            await api(`/api/activities/${id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ emoji: newEmoji }),
+            })
+            state.activities = []
+            showToast('이모지를 바꿨어요', 'success', newEmoji)
+          } catch (e) {
+            showToast(e.message, 'error')
+          }
+        },
+        onClear: async () => {
+          // NULL로 비우면 다음에 자동 추천이 다시 적용됨
+          const auto = suggestActivityEmoji(name) || '📌'
+          btn.textContent = auto
+          item.dataset.emoji = ''
+          try {
+            await api(`/api/activities/${id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ emoji: null }),
+            })
+            state.activities = []
+            showToast('자동 추천 이모지로 돌렸어요', 'success', auto)
+          } catch (e) {
+            showToast(e.message, 'error')
+          }
+        },
       })
     })
   })
@@ -1449,6 +1776,7 @@ async function renderActivitiesSettings() {
   // 추가
   document.getElementById('add-activity').onclick = async () => {
     try {
+      // 서버에서 이름 기반 자동 추천 emoji를 채워줌
       await api(`/api/classes/${state.classId}/activities`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1463,6 +1791,60 @@ async function renderActivitiesSettings() {
       showToast(e.message, 'error')
     }
   }
+}
+
+// ==============================
+// 이모지 피커 모달 (카테고리별 100+ 개)
+//   opts: { title, current, onPick(emoji), onClear() }
+// ==============================
+function showEmojiPicker({ title = '이모지 고르기', current = '', onPick, onClear } = {}) {
+  const container = document.getElementById('modal-container')
+
+  function render() {
+    const sections = ACTIVITY_EMOJI_LIBRARY.map(sec => `
+      <div class="picker-section">
+        <div class="picker-label" style="font-size:12px;color:var(--text-muted, #94a3b8);margin-bottom:6px;">${escapeHtml(sec.label)}</div>
+        <div class="emoji-grid">
+          ${sec.emojis.map(em => `
+            <button class="emoji-pick ${em === current ? 'active' : ''}" data-emoji="${em}" title="${em}">${em}</button>
+          `).join('')}
+        </div>
+      </div>
+    `).join('')
+
+    container.innerHTML = `
+      <div class="modal-backdrop">
+        <div class="modal modal-wide">
+          <div class="modal-title">${escapeHtml(title)}</div>
+          <div class="emoji-picker-current">
+            <span class="hint-text" style="margin:0 8px 0 0;">현재:</span>
+            <span class="emoji-picker-current-em">${current || '📌'}</span>
+          </div>
+          <div class="emoji-picker-scroll">${sections}</div>
+          <div class="modal-actions">
+            <button class="btn-cancel" id="emoji-picker-cancel">닫기</button>
+            ${onClear ? `<button class="btn-mini" id="emoji-picker-clear">↺ 자동 추천으로</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `
+
+    container.querySelectorAll('.emoji-pick').forEach(b => {
+      b.addEventListener('click', async () => {
+        const em = b.dataset.emoji
+        container.innerHTML = ''
+        try { await onPick?.(em) } catch (e) { console.error(e) }
+      })
+    })
+    document.getElementById('emoji-picker-cancel').onclick = () => container.innerHTML = ''
+    const clearBtn = document.getElementById('emoji-picker-clear')
+    if (clearBtn) clearBtn.onclick = async () => {
+      container.innerHTML = ''
+      try { await onClear?.() } catch (e) { console.error(e) }
+    }
+  }
+
+  render()
 }
 
 // ----- 스킬 내용 편집 -----

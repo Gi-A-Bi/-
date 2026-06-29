@@ -278,18 +278,18 @@ app.post('/api/classes', async (c) => {
 
   // 신규 학급에는 기본 활동(점수버튼) 12개 시드 (기존 4-1과 동일 사양)
   const DEFAULT_ACTIVITIES = [
-    { name: '발표/적극 참여', score: 100, sort_order: 1 },
-    { name: '과제/숙제 완료', score: 80, sort_order: 2 },
-    { name: '협동/도움', score: 60, sort_order: 3 },
-    { name: '예의/태도', score: 50, sort_order: 4 },
-    { name: '정리정돈', score: 40, sort_order: 5 },
-    { name: '독서/공부', score: 30, sort_order: 6 },
-    { name: '인사/존중', score: 20, sort_order: 7 },
-    { name: '기타 +(직접입력)', score: 0, sort_order: 8 },
-    { name: '지각', score: -20, sort_order: 9 },
-    { name: '준비물 미비', score: -30, sort_order: 10 },
-    { name: '수업 방해', score: -50, sort_order: 11 },
-    { name: '기타 -(직접입력)', score: 0, sort_order: 12 },
+    { name: '발표/적극 참여', score: 100, emoji: '🎤', sort_order: 1 },
+    { name: '과제/숙제 완료', score: 80,  emoji: '📝', sort_order: 2 },
+    { name: '협동/도움',     score: 60,  emoji: '🤝', sort_order: 3 },
+    { name: '예의/태도',     score: 50,  emoji: '🙇', sort_order: 4 },
+    { name: '정리정돈',      score: 40,  emoji: '🧹', sort_order: 5 },
+    { name: '독서/공부',     score: 30,  emoji: '📚', sort_order: 6 },
+    { name: '인사/존중',     score: 20,  emoji: '👋', sort_order: 7 },
+    { name: '기타 +(직접입력)', score: 0, emoji: '➕', sort_order: 8 },
+    { name: '지각',          score: -20, emoji: '⏰', sort_order: 9 },
+    { name: '준비물 미비',   score: -30, emoji: '🎒', sort_order: 10 },
+    { name: '수업 방해',     score: -50, emoji: '🚫', sort_order: 11 },
+    { name: '기타 -(직접입력)', score: 0, emoji: '➖', sort_order: 12 },
   ].map(a => ({ ...a, class_id: cls.id }))
 
   await sb.insert('activities', DEFAULT_ACTIVITIES, false)
@@ -384,6 +384,7 @@ app.post('/api/classes/:classId/students', async (c) => {
     nickname: null,
     avatar_emoji: null,
     avatar_color: null,
+    avatar_image: null,
     xp: 0,
     hp: 3,
     owned_skills: [],
@@ -431,6 +432,7 @@ app.post('/api/classes/:classId/students/bulk', async (c) => {
     nickname: null,
     avatar_emoji: null,
     avatar_color: null,
+    avatar_image: null,
     xp: 0,
     hp: 3,
     owned_skills: [],
@@ -506,6 +508,7 @@ app.put('/api/students/:id/profile', async (c) => {
     nickname?: string | null
     avatar_emoji?: string | null
     avatar_color?: string | null
+    avatar_image?: string | null   // Base64 data URL ("data:image/jpeg;base64,...") 또는 null로 제거
   }>()
   const sb = makeSupabase(c.env)
 
@@ -515,6 +518,14 @@ app.put('/api/students/:id/profile', async (c) => {
   }
   if (body.avatar_emoji !== undefined) patch.avatar_emoji = body.avatar_emoji || null
   if (body.avatar_color !== undefined) patch.avatar_color = body.avatar_color || null
+  if (body.avatar_image !== undefined) {
+    // 너무 큰 이미지는 거부 (클라이언트에서 200x200 JPEG로 압축해 보내야 함)
+    // data URL은 원본의 약 1.37배 크기. 250KB까지 허용 (안전 마진).
+    if (body.avatar_image && body.avatar_image.length > 250_000) {
+      return c.json({ error: '이미지가 너무 큽니다 (최대 약 180KB)' }, 400)
+    }
+    patch.avatar_image = body.avatar_image || null
+  }
 
   const updated = await sb.update<StudentRow>('students', patch, `id=eq.${id}`)
   if (!updated[0]) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
@@ -524,6 +535,7 @@ app.put('/api/students/:id/profile', async (c) => {
     nickname: updated[0].nickname,
     avatar_emoji: updated[0].avatar_emoji,
     avatar_color: updated[0].avatar_color,
+    avatar_image: updated[0].avatar_image,
   })
 })
 
@@ -738,7 +750,7 @@ app.get('/api/classes/:classId/logs', async (c) => {
     ),
     sb.select<StudentRow>(
       'students',
-      `select=id,name,nickname,avatar_color,avatar_emoji&class_id=eq.${classId}`,
+      `select=id,name,nickname,avatar_color,avatar_emoji,avatar_image&class_id=eq.${classId}`,
     ),
   ])
 
@@ -754,6 +766,7 @@ app.get('/api/classes/:classId/logs', async (c) => {
       student_nickname: s?.nickname ?? null,
       avatar_color: s?.avatar_color ?? null,
       avatar_emoji: s?.avatar_emoji ?? null,
+      avatar_image: s?.avatar_image ?? null,
     }
   })
 
@@ -831,6 +844,38 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
 // =================================================================
 // 활동(점수 버튼) CRUD
 // =================================================================
+// 활동명 → 이모지 자동 추천 (서버에서도 한 번 매칭. NULL인 경우의 대체값)
+function suggestActivityEmoji(name: string): string | null {
+  const n = (name || '').toLowerCase()
+  const rules: Array<[RegExp, string]> = [
+    [/숙제/, '📝'],
+    [/출석|등교/, '✅'],
+    [/지각/, '⏰'],
+    [/독서|책/, '📚'],
+    [/돕기|친구/, '🤝'],
+    [/칭찬|쩐다|훌륭|폭풍/, '🌟'],
+    [/벌점|감점/, '⚠️'],
+    [/발표|말하기/, '🎤'],
+    [/청소/, '🧹'],
+    [/인사/, '👋'],
+    [/그림|미술/, '🎨'],
+    [/노래|음악/, '🎵'],
+    [/체육|운동/, '⚽'],
+    [/수학|문제/, '🧮'],
+    [/영어/, '🔤'],
+    [/과학|실험/, '🔬'],
+    [/리더/, '👑'],
+    [/멘토/, '🧑‍🏫'],
+    [/일기|글쓰기/, '✏️'],
+    [/실수|틀림/, '😅'],
+    [/도전|모험/, '🗺️'],
+    [/협동|모둠/, '🧩'],
+    [/직접|기타|커스텀/, '✏️'],
+  ]
+  for (const [re, em] of rules) if (re.test(name)) return em
+  return null
+}
+
 app.get('/api/classes/:classId/activities', async (c) => {
   const classId = c.req.param('classId')
   const owned = await loadOwnedClass(c, classId)
@@ -847,6 +892,7 @@ app.get('/api/classes/:classId/activities', async (c) => {
     name: a.name,
     score_delta: a.score,
     score: a.score,
+    emoji: a.emoji || suggestActivityEmoji(a.name),  // NULL이면 이름 기반 추천
     sort_order: a.sort_order,
     is_custom_input: a.score === 0 ? 1 : 0,
   }))
@@ -862,6 +908,7 @@ app.post('/api/classes/:classId/activities', async (c) => {
     name: string
     score_delta?: number
     score?: number
+    emoji?: string | null
     is_custom_input?: number
   }>()
   const sb = makeSupabase(c.env)
@@ -872,14 +919,17 @@ app.post('/api/classes/:classId/activities', async (c) => {
   )
   const nextOrder = (existing[0]?.sort_order || 0) + 1
   const score = body.is_custom_input ? 0 : Number(body.score_delta ?? body.score ?? 0)
+  // 클라이언트가 emoji를 보냈으면 그것을, 아니면 이름 기반 자동 추천 (없으면 NULL)
+  const emoji = body.emoji !== undefined ? (body.emoji || null) : suggestActivityEmoji(body.name)
 
   const inserted = await sb.insert<ActivityRow>('activities', [{
     class_id: classId,
     name: body.name,
     score,
+    emoji,
     sort_order: nextOrder,
   }])
-  return c.json({ success: true, id: inserted[0]?.id })
+  return c.json({ success: true, id: inserted[0]?.id, emoji })
 })
 
 app.put('/api/activities/:id', async (c) => {
@@ -891,12 +941,14 @@ app.put('/api/activities/:id', async (c) => {
     name?: string
     score_delta?: number
     score?: number
+    emoji?: string | null
   }>()
   const sb = makeSupabase(c.env)
   const patch: Record<string, any> = {}
   if (body.name !== undefined) patch.name = body.name
   if (body.score_delta !== undefined) patch.score = Number(body.score_delta)
   else if (body.score !== undefined) patch.score = Number(body.score)
+  if (body.emoji !== undefined) patch.emoji = body.emoji || null
   if (Object.keys(patch).length === 0) return c.json({ success: true, no_changes: true })
 
   await sb.update('activities', patch, `id=eq.${id}`, false)

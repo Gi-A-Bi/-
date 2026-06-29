@@ -13,23 +13,26 @@
 
 1. **Supabase SQL Editor에서** `migrations/supabase_0001_owner_email.sql` 실행
    → `classes.owner_email` 컬럼 + 인덱스 생성
-2. (선택) 기존 "클업 4-1" 학급(id `00000000-0000-0000-0000-000000000001`)을 본인 학급으로 가져오려면, 로그인 후 온보딩 화면의 "이 학급 가져오기" 버튼을 누르면 됨. 또는 SQL로 직접:
+2. **Supabase SQL Editor에서** `migrations/supabase_0002_avatar_image_and_activity_emoji.sql` 실행
+   → `students.avatar_image` (학생 사진), `activities.emoji` (활동 버튼 이모지) 컬럼 추가
+3. (선택) 기존 "클업 4-1" 학급(id `00000000-0000-0000-0000-000000000001`)을 본인 학급으로 가져오려면, 로그인 후 온보딩 화면의 "이 학급 가져오기" 버튼을 누르면 됨. 또는 SQL로 직접:
    ```sql
    UPDATE classes SET owner_email = 'your-email@example.com'
     WHERE id = '00000000-0000-0000-0000-000000000001';
    ```
-3. Supabase Auth 설정에서 **Email confirmations** 를 꺼두면 회원가입 즉시 로그인되어 편함 (Authentication → Providers → Email → Confirm email OFF)
+4. Supabase Auth 설정에서 **Email confirmations** 를 꺼두면 회원가입 즉시 로그인되어 편함 (Authentication → Providers → Email → Confirm email OFF)
 
 ## 데이터 저장소
 
 **Supabase** (PostgreSQL).
 - `classes` (id, name, **owner_email**, created_at)
-- `students` (class_id 로 학급 분리)
-- `activities` (class_id 로 학급 분리, 점수 버튼)
+- `students` (class_id, name, nickname, **avatar_emoji / avatar_color / avatar_image**, xp, hp, owned/used_skills(JSON))
+- `activities` (class_id, name, score, **emoji**, sort_order) — 점수 버튼
 - `activity_logs` (class_id 로 학급 분리)
 - `levels` (전역 공통 — 모든 학급이 같은 레벨표 사용)
 
 학생의 보유/사용 스킬은 `students.owned_skills` / `used_skills` JSON 컬럼.
+학생 프로필 사진(`avatar_image`)은 200×200 정사각형 JPEG로 클라이언트에서 압축 후 Base64 data URL 형태로 저장 (≤ 약 200KB).
 
 환경변수 (`.dev.vars` 또는 Cloudflare Pages secret):
 - `SUPABASE_URL`
@@ -95,6 +98,20 @@
   3. **엑셀 파일** — `.xlsx / .xls / .csv` 업로드 (드래그앤드롭 지원). 첫 번째 열의 모든 이름을 읽어옴. 첫 행이 "이름/성명/name" 헤더면 자동 건너뜀. SheetJS(`xlsx@0.18.5`)를 CDN으로 `defer` 로드
 - **한 번에 최대 100명**까지 추가. 출석번호는 (현재 최대값 + 1)부터 순차 자동 부여
 
+### 학생 관리·아바타·이모지 강화 (2026-06)
+
+- **학생 삭제** — 학생 상세 페이지 우측 상단의 빨간 `🗑 학생 삭제` 버튼. 확인 모달 → 학생/활동기록/보유 스킬 모두 안전하게 정리. (목록으로 자동 복귀)
+- **학생 프로필 사진 업로드** — 아바타 꾸미기 모달이 2개 탭으로 확장:
+  1. **이모지·색상** — 기존 방식 (32개 캐릭터 이모지 + 24색 배경)
+  2. **사진 업로드** — 클릭 또는 드래그앤드롭으로 이미지 선택. 클라이언트에서 **200×200 정사각형으로 중앙 크롭 + JPEG 압축(q≈0.8)** → ~10–50KB. 너무 크면 자동으로 더 압축. "사진 제거" 버튼으로 이모지 모드로 돌아가기.
+  - 학생 카드 / 상세 헤더 / 활동 기록 줄 — 사진이 있으면 모든 곳에 동그란 프로필 사진이 표시
+- **활동(점수 버튼) 이모지 라이브러리** — `activities.emoji` 컬럼 신설
+  - 카테고리별 **160여 가지** 이모지 (학습/발표/예체능/리더십/생활/감정/주의/기타)
+  - 새 활동을 만들거나 활동명을 바꾸면 **이름 기반으로 자동 추천** (예: "수학 문제 다 풀기" → 🧮, "발표 잘함" → 🎤, "지각" → ⏰)
+  - 자동 추천이 마음에 안 들면 **이모지 버튼을 클릭해서 직접 선택** — 한 번 직접 고른 활동은 활동명을 바꿔도 그대로 유지 (선생님 의도 보존)
+  - 선택기 모달 안의 `↺ 자동 추천으로` 버튼으로 다시 자동 추천 모드로 되돌릴 수 있음
+  - 학생 상세의 점수 버튼, 활동 기록의 아이콘, 토스트 알림 — 모두 새 이모지가 자동 반영
+
 ## 기술 스택
 
 - Cloudflare Pages + Hono (TypeScript JSX)
@@ -134,5 +151,6 @@ echo "<new-value>" | npx wrangler pages secret put SUPABASE_KEY --project-name c
 
 ### 처음 배포할 때 한 번만 했던 것
 1. Supabase SQL Editor에서 `migrations/supabase_0001_owner_email.sql` 실행
-2. `npx wrangler pages project create classup --production-branch main`
-3. Secret 3개 등록: `SUPABASE_URL`, `SUPABASE_KEY`, `DEFAULT_CLASS_ID`
+2. Supabase SQL Editor에서 `migrations/supabase_0002_avatar_image_and_activity_emoji.sql` 실행
+3. `npx wrangler pages project create classup --production-branch main`
+4. Secret 3개 등록: `SUPABASE_URL`, `SUPABASE_KEY`, `DEFAULT_CLASS_ID`

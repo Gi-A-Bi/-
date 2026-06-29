@@ -48,6 +48,7 @@ export interface StudentRow {
   nickname: string | null
   avatar_emoji: string | null
   avatar_color: string | null
+  avatar_image: string | null   // Base64 data URL (200x200 정사각형, JPEG 압축)
   xp: number
   hp: number
   owned_skills: OwnedSkill[]
@@ -60,6 +61,7 @@ export interface ActivityRow {
   class_id: string
   name: string
   score: number
+  emoji: string | null   // 활동 버튼에 보여줄 이모지 (NULL이면 클라이언트가 이름 기반 자동 매칭)
   sort_order: number
 }
 
