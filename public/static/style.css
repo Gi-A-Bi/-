@@ -63,7 +63,14 @@
 html, body {
   width: 100%;
   min-height: 100vh;
-  font-family: 'Jua', 'Gaegu', system-ui, -apple-system, sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+               'Apple SD Gothic Neo', 'Segoe UI', 'Noto Sans KR', system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   color: var(--text);
   background:
     /* 가장자리 비네팅 */
@@ -191,27 +198,73 @@ button {
 .header-actions {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .icon-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
+  min-width: 52px;
+  height: 46px;
+  padding: 5px 8px 4px;
+  border-radius: 10px;
   background: linear-gradient(180deg, rgba(201,161,74,0.18), rgba(201,161,74,0.05));
   color: var(--gold-light);
-  font-size: 18px;
-  display: flex;
+  display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+  gap: 2px;
+  transition: transform 0.15s, background 0.15s, box-shadow 0.15s, border-color 0.15s;
   border: 1px solid var(--card-border-dim);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.icon-btn i {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.icon-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--gold-light);
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.icon-btn:hover {
+  background: linear-gradient(180deg, rgba(201,161,74,0.28), rgba(201,161,74,0.10));
+  border-color: var(--gold);
 }
 
 .icon-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   background: linear-gradient(180deg, rgba(201,161,74,0.35), rgba(201,161,74,0.15));
   box-shadow: var(--glow-gold);
+}
+
+/* 로그아웃은 살짝 다른 톤(붉은 기) */
+.icon-btn-logout {
+  background: linear-gradient(180deg, rgba(220, 80, 80, 0.18), rgba(220, 80, 80, 0.05));
+  border-color: rgba(220, 80, 80, 0.35);
+  color: #fca5a5;
+}
+.icon-btn-logout i,
+.icon-btn-logout .icon-label {
+  color: #fca5a5;
+}
+.icon-btn-logout:hover {
+  background: linear-gradient(180deg, rgba(220, 80, 80, 0.28), rgba(220, 80, 80, 0.10));
+  border-color: #fca5a5;
+}
+
+/* 좁은 화면에서는 라벨이 잘리지 않도록 헤더 패딩 조정 */
+@media (max-width: 360px) {
+  .app-header { padding: 12px 10px; }
+  .icon-btn { min-width: 46px; padding: 5px 6px 4px; }
+  .icon-label { font-size: 9px; }
 }
 
 /* ===== 공통 컨테이너 ===== */

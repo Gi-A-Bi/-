@@ -42,9 +42,18 @@ app.get('/', (c) => {
             </span>
           </div>
           <div class="header-actions">
-            <button class="icon-btn" id="nav-logs" title="활동 기록">📜</button>
-            <button class="icon-btn" id="nav-settings" title="설정">⚙️</button>
-            <button class="icon-btn" id="nav-logout" title="로그아웃">🚪</button>
+            <button class="icon-btn" id="nav-logs" title="활동 기록" aria-label="활동 기록">
+              <i class="fa-solid fa-clock-rotate-left"></i>
+              <span class="icon-label">기록</span>
+            </button>
+            <button class="icon-btn" id="nav-settings" title="설정" aria-label="설정">
+              <i class="fa-solid fa-sliders"></i>
+              <span class="icon-label">설정</span>
+            </button>
+            <button class="icon-btn icon-btn-logout" id="nav-logout" title="로그아웃" aria-label="로그아웃">
+              <i class="fa-solid fa-right-from-bracket"></i>
+              <span class="icon-label">로그아웃</span>
+            </button>
           </div>
         </div>
       </header>
