@@ -100,6 +100,28 @@ curl http://localhost:3000/api/public-config
 
 ## 배포
 
-1. Supabase SQL Editor에서 `migrations/supabase_0001_owner_email.sql` 1회 실행
-2. Cloudflare Pages secret 등록: `SUPABASE_URL`, `SUPABASE_KEY`, `DEFAULT_CLASS_ID`
-3. `npm run deploy`
+- **프로덕션 URL**: https://classup.pages.dev
+- **플랫폼**: Cloudflare Pages (BYOK — 사용자 본인 계정)
+- **프로젝트명**: `classup`
+- **상태**: ✅ Live (로그인 → 학급 클레임/생성 → 학생 관리 풀 가동)
+
+### 재배포 절차
+```bash
+cd /home/user/webapp
+npm run build
+npx wrangler pages deploy dist --project-name classup --branch main
+```
+
+### Secret 관리
+```bash
+# 목록 보기
+npx wrangler pages secret list --project-name classup
+
+# 값 변경 (예: 키 회전)
+echo "<new-value>" | npx wrangler pages secret put SUPABASE_KEY --project-name classup
+```
+
+### 처음 배포할 때 한 번만 했던 것
+1. Supabase SQL Editor에서 `migrations/supabase_0001_owner_email.sql` 실행
+2. `npx wrangler pages project create classup --production-branch main`
+3. Secret 3개 등록: `SUPABASE_URL`, `SUPABASE_KEY`, `DEFAULT_CLASS_ID`
