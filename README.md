@@ -54,6 +54,7 @@
 |---|---|---|
 | GET | `/api/classes/:classId/students` | 학생 목록 |
 | POST | `/api/classes/:classId/students` | 학생 추가 (body: `{ name, number? }`) |
+| POST | `/api/classes/:classId/students/bulk` | 학생 일괄 추가 (body: `{ names: string[] }`, 1~100명) |
 | GET | `/api/students/:id` | 학생 상세 (skills + pending_choices) |
 | PUT | `/api/students/:id/profile` | 닉네임/아바타 |
 | DELETE | `/api/students/:id` | 학생 삭제 (로그도 함께) |
@@ -83,6 +84,16 @@
 ## UI 디자인
 
 다크 판타지 RPG (인벤토리 슬롯 + 보석 등급 배지 + 발광 XP 바). 로그인/온보딩도 같은 톤.
+
+### 사용성 개선 (2026-06)
+
+- **헤더 아이콘에 한글 라벨 병기** — `기록 / 설정 / 로그아웃` 텍스트가 항상 보여 직관적
+- **본문 폰트** — Pretendard Variable (한글 가독성 표준), 자간/굵기 단계 정리
+- **학생 일괄 등록** — 학생 추가 모달이 3개 탭으로 확장:
+  1. **한 명씩** — 기존 입력 방식
+  2. **붙여넣기** — 엑셀/한글에서 이름을 복사해 텍스트 영역에 붙여넣기. 줄바꿈 / 쉼표 / 탭 / 세미콜론으로 자동 구분, "1. 김민준" 같은 출석번호도 자동 제거. 추가 전에 칩으로 미리보기
+  3. **엑셀 파일** — `.xlsx / .xls / .csv` 업로드 (드래그앤드롭 지원). 첫 번째 열의 모든 이름을 읽어옴. 첫 행이 "이름/성명/name" 헤더면 자동 건너뜀. SheetJS(`xlsx@0.18.5`)를 CDN으로 `defer` 로드
+- **한 번에 최대 100명**까지 추가. 출석번호는 (현재 최대값 + 1)부터 순차 자동 부여
 
 ## 기술 스택
 

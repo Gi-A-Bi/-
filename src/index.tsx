@@ -393,6 +393,59 @@ app.post('/api/classes/:classId/students', async (c) => {
 })
 
 // =================================================================
+// 학생 일괄 추가 (붙여넣기 / 엑셀 업로드)
+//  body: { names: string[] }  (이미 클라이언트에서 파싱 완료된 이름 배열)
+//  - 중복 이름은 그대로 추가 (동명이인 가능)
+//  - 출석번호는 (현재 최대 + 1)부터 순차 자동 부여
+// =================================================================
+app.post('/api/classes/:classId/students/bulk', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ names: string[] }>().catch(() => ({} as any))
+  const rawNames = Array.isArray(body.names) ? body.names : []
+  const names = rawNames
+    .map(n => (typeof n === 'string' ? n.trim() : ''))
+    .filter(n => n.length > 0 && n.length <= 30)
+
+  if (names.length === 0) {
+    return c.json({ error: '추가할 이름이 없습니다' }, 400)
+  }
+  if (names.length > 100) {
+    return c.json({ error: '한 번에 최대 100명까지 추가할 수 있어요' }, 400)
+  }
+
+  const sb = makeSupabase(c.env)
+  // 현재 최대 출석번호 확인
+  const rows = await sb.select<StudentRow>(
+    'students',
+    `select=number&class_id=eq.${classId}&order=number.desc&limit=1`,
+  )
+  let nextNumber = (rows[0]?.number || 0) + 1
+
+  const newStudents = names.map(name => ({
+    class_id: classId,
+    number: nextNumber++,
+    name,
+    nickname: null,
+    avatar_emoji: null,
+    avatar_color: null,
+    xp: 0,
+    hp: 3,
+    owned_skills: [],
+    used_skills: [],
+  }))
+
+  const inserted = await sb.insert<StudentRow>('students', newStudents)
+  return c.json({
+    success: true,
+    count: inserted.length,
+    students: inserted,
+  })
+})
+
+// =================================================================
 // 학생 삭제 (학급 소유권 검증)
 // =================================================================
 app.delete('/api/students/:id', async (c) => {

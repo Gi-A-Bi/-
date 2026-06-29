@@ -697,33 +697,209 @@ async function renderList() {
   })
 }
 
-// 학생 추가 모달
+// ==============================
+// 학생 추가 모달 (한 명 / 붙여넣기 / 엑셀 업로드 3개 탭)
+// ==============================
 function showAddStudentModal() {
   const container = document.getElementById('modal-container')
-  container.innerHTML = `
-    <div class="modal-backdrop">
-      <div class="modal">
-        <div class="modal-title">👤 학생 추가</div>
-        <form id="add-student-form" class="add-student-form">
-          <label class="auth-label">
-            <span>학생 이름</span>
-            <input type="text" id="add-student-name" required maxlength="20" placeholder="예: 김민준" />
-          </label>
+  let tab = 'single'        // 'single' | 'paste' | 'file'
+  let parsedNames = []      // 미리보기에 보여줄 이름 배열 (paste / file 공용)
+
+  function render() {
+    container.innerHTML = `
+      <div class="modal-backdrop">
+        <div class="modal modal-wide">
+          <div class="modal-title">👤 학생 추가</div>
+
+          <div class="add-tabs">
+            <button class="add-tab ${tab === 'single' ? 'active' : ''}" data-tab="single">
+              <i class="fa-solid fa-user-plus"></i> 한 명씩
+            </button>
+            <button class="add-tab ${tab === 'paste' ? 'active' : ''}" data-tab="paste">
+              <i class="fa-solid fa-paste"></i> 붙여넣기
+            </button>
+            <button class="add-tab ${tab === 'file' ? 'active' : ''}" data-tab="file">
+              <i class="fa-solid fa-file-excel"></i> 엑셀 파일
+            </button>
+          </div>
+
+          <div class="add-tab-body">
+            ${tabBody()}
+          </div>
+
           <div class="modal-actions">
             <button type="button" class="btn-cancel" id="add-student-cancel">취소</button>
-            <button type="submit" class="btn-confirm">추가</button>
+            ${actionButton()}
           </div>
-        </form>
+        </div>
       </div>
-    </div>
-  `
-  const input = document.getElementById('add-student-name')
-  setTimeout(() => input.focus(), 50)
-  document.getElementById('add-student-cancel').onclick = () => container.innerHTML = ''
-  document.getElementById('add-student-form').onsubmit = async (e) => {
-    e.preventDefault()
-    const name = input.value.trim()
-    if (!name) return
+    `
+
+    // 탭 클릭 → 미리보기 초기화하고 다시 그리기
+    container.querySelectorAll('.add-tab').forEach(b => {
+      b.onclick = () => {
+        tab = b.dataset.tab
+        parsedNames = []
+        render()
+      }
+    })
+    document.getElementById('add-student-cancel').onclick = () => container.innerHTML = ''
+
+    bindTabBody()
+  }
+
+  function tabBody() {
+    if (tab === 'single') {
+      return `
+        <div class="add-mode-desc">학생 한 명을 빠르게 추가해요.</div>
+        <label class="auth-label">
+          <span>학생 이름</span>
+          <input type="text" id="single-name" maxlength="20" placeholder="예: 김민준" />
+        </label>
+      `
+    }
+    if (tab === 'paste') {
+      return `
+        <div class="add-mode-desc">
+          엑셀이나 한글 문서에서 이름들을 복사한 뒤 아래 칸에 붙여넣으세요.<br/>
+          <strong>줄바꿈, 쉼표(,), 탭</strong>으로 자동 구분돼요.
+        </div>
+        <textarea id="paste-area" rows="7" placeholder="김민준&#10;이서연&#10;박지호&#10;...&#10;&#10;또는: 김민준, 이서연, 박지호"></textarea>
+        ${previewHtml()}
+      `
+    }
+    // file
+    return `
+      <div class="add-mode-desc">
+        엑셀(.xlsx / .xls) 또는 CSV 파일을 업로드하세요.<br/>
+        <strong>첫 번째 열의 모든 이름</strong>을 자동으로 읽어옵니다.
+        (헤더 행에 "이름" 또는 "name"이 있으면 자동으로 건너뛰어요)
+      </div>
+      <label class="file-drop">
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" hidden />
+        <div class="file-drop-inner">
+          <i class="fa-solid fa-file-arrow-up"></i>
+          <div class="file-drop-label">엑셀/CSV 파일 선택</div>
+          <div class="file-drop-name" id="file-drop-name">파일을 선택하거나 여기로 드래그</div>
+        </div>
+      </label>
+      ${previewHtml()}
+    `
+  }
+
+  function previewHtml() {
+    if (parsedNames.length === 0) return ''
+    const preview = parsedNames.slice(0, 50)
+    const more = parsedNames.length - preview.length
+    return `
+      <div class="preview-section">
+        <div class="preview-title">
+          <i class="fa-solid fa-list-check"></i> 추가될 학생 ${parsedNames.length}명
+          ${parsedNames.length > 100 ? '<span class="preview-warn">⚠ 한 번에 100명까지만 가능해요</span>' : ''}
+        </div>
+        <div class="preview-chips">
+          ${preview.map((n, i) => `<span class="preview-chip"><span class="preview-num">${i + 1}</span>${escapeHtml(n)}</span>`).join('')}
+          ${more > 0 ? `<span class="preview-more">+${more}명 더</span>` : ''}
+        </div>
+      </div>
+    `
+  }
+
+  function actionButton() {
+    if (tab === 'single') {
+      return `<button type="button" class="btn-confirm" id="action-btn">추가</button>`
+    }
+    const disabled = parsedNames.length === 0 || parsedNames.length > 100
+    return `<button type="button" class="btn-confirm" id="action-btn" ${disabled ? 'disabled' : ''}>
+      ${parsedNames.length > 0 ? `${parsedNames.length}명 전체 추가` : '추가'}
+    </button>`
+  }
+
+  function bindTabBody() {
+    if (tab === 'single') {
+      const input = document.getElementById('single-name')
+      setTimeout(() => input.focus(), 50)
+      input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          document.getElementById('action-btn').click()
+        }
+      }
+      document.getElementById('action-btn').onclick = async () => {
+        const name = input.value.trim()
+        if (!name) return showToast('이름을 입력해주세요', 'error')
+        await submitSingle(name)
+      }
+    } else if (tab === 'paste') {
+      const ta = document.getElementById('paste-area')
+      setTimeout(() => ta.focus(), 50)
+      ta.oninput = () => {
+        parsedNames = parseNamesFromText(ta.value)
+        // 미리보기 + 버튼만 다시 그리기 (재초점 손실 방지)
+        updatePreviewAndAction()
+      }
+      document.getElementById('action-btn').onclick = submitBulk
+    } else {
+      const fi = document.getElementById('file-input')
+      const dropZone = document.querySelector('.file-drop')
+
+      fi.onchange = () => handleFile(fi.files?.[0])
+      // 드래그앤드롭
+      dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drag-over') }
+      dropZone.ondragleave = () => dropZone.classList.remove('drag-over')
+      dropZone.ondrop = (e) => {
+        e.preventDefault()
+        dropZone.classList.remove('drag-over')
+        handleFile(e.dataTransfer.files?.[0])
+      }
+      document.getElementById('action-btn').onclick = submitBulk
+    }
+  }
+
+  function updatePreviewAndAction() {
+    // 탭 본체 안에서 .preview-section과 액션 버튼만 다시 그림
+    const body = container.querySelector('.add-tab-body')
+    const oldPreview = body.querySelector('.preview-section')
+    const previewWrap = document.createElement('div')
+    previewWrap.innerHTML = previewHtml()
+    const newPreview = previewWrap.firstElementChild
+    if (oldPreview && newPreview) oldPreview.replaceWith(newPreview)
+    else if (oldPreview && !newPreview) oldPreview.remove()
+    else if (!oldPreview && newPreview) body.appendChild(newPreview)
+
+    // 액션 버튼 다시 그리기
+    const actions = container.querySelector('.modal-actions')
+    const oldBtn = document.getElementById('action-btn')
+    const tmp = document.createElement('div')
+    tmp.innerHTML = actionButton()
+    const newBtn = tmp.firstElementChild
+    oldBtn.replaceWith(newBtn)
+    newBtn.onclick = submitBulk
+  }
+
+  async function handleFile(file) {
+    if (!file) return
+    const nameEl = document.getElementById('file-drop-name')
+    nameEl.textContent = file.name
+    try {
+      const names = await parseSpreadsheetFile(file)
+      parsedNames = names
+      updatePreviewAndAction()
+      if (names.length === 0) {
+        showToast('파일에서 이름을 찾지 못했어요', 'error')
+      } else {
+        showToast(`${names.length}명을 찾았어요!`, 'success', '📑')
+      }
+    } catch (e) {
+      console.error(e)
+      showToast('파일을 읽지 못했어요: ' + e.message, 'error')
+    }
+  }
+
+  async function submitSingle(name) {
+    const btn = document.getElementById('action-btn')
+    btn.disabled = true
+    btn.textContent = '추가 중...'
     try {
       await api(`/api/classes/${state.classId}/students`, {
         method: 'POST',
@@ -734,8 +910,81 @@ function showAddStudentModal() {
       await renderList()
     } catch (err) {
       showToast(err.message, 'error')
+      btn.disabled = false
+      btn.textContent = '추가'
     }
   }
+
+  async function submitBulk() {
+    if (parsedNames.length === 0) {
+      return showToast('추가할 이름이 없어요', 'error')
+    }
+    if (parsedNames.length > 100) {
+      return showToast('한 번에 100명까지만 가능해요', 'error')
+    }
+    const btn = document.getElementById('action-btn')
+    btn.disabled = true
+    btn.textContent = '추가 중...'
+    try {
+      const r = await api(`/api/classes/${state.classId}/students/bulk`, {
+        method: 'POST',
+        body: JSON.stringify({ names: parsedNames }),
+      })
+      container.innerHTML = ''
+      showToast(`${r.count}명을 한 번에 추가했어요!`, 'success', '🎉')
+      await renderList()
+    } catch (err) {
+      showToast(err.message, 'error')
+      btn.disabled = false
+      btn.textContent = `${parsedNames.length}명 전체 추가`
+    }
+  }
+
+  render()
+}
+
+// 텍스트(붙여넣기)에서 이름 배열 파싱
+//  - 줄바꿈/쉼표/탭/세미콜론으로 분리
+//  - 앞뒤 공백 제거, 빈 토큰 제외
+//  - 번호("1.", "1)", "01")가 앞에 붙어 있으면 제거
+function parseNamesFromText(text) {
+  if (!text) return []
+  return text
+    .split(/[\n,;\t]+/)
+    .map(s => s.trim())
+    .map(s => s.replace(/^\d+\s*[.)、]\s*/, '')) // "1. 김민준" → "김민준"
+    .map(s => s.replace(/^\d+\s+/, ''))            // "01 김민준" → "김민준" (출석번호 + 공백 + 이름)
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && s.length <= 30)
+}
+
+// 엑셀/CSV 파일에서 이름 배열 파싱 (첫 번째 열만 사용)
+async function parseSpreadsheetFile(file) {
+  if (typeof XLSX === 'undefined') {
+    throw new Error('엑셀 라이브러리를 불러오는 중이에요. 잠시 후 다시 시도해주세요.')
+  }
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const sheetName = wb.SheetNames[0]
+  if (!sheetName) throw new Error('빈 파일입니다')
+  const sheet = wb.Sheets[sheetName]
+  // header:1 → 배열의 배열, defval:'' → 빈 셀도 빈 문자열로
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false })
+
+  if (!rows.length) return []
+
+  // 첫 행이 헤더("이름"/"name"/"성명")이면 건너뛰기
+  const firstCell = String(rows[0][0] || '').trim().toLowerCase()
+  const isHeader = /^(이름|성명|학생\s*명|name|student\s*name)$/i.test(firstCell)
+  const dataRows = isHeader ? rows.slice(1) : rows
+
+  // 첫 번째 열의 값만 모으기
+  return dataRows
+    .map(r => String(r[0] || '').trim())
+    .map(s => s.replace(/^\d+\s*[.)、]\s*/, ''))
+    .map(s => s.replace(/^\d+\s+/, ''))
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && s.length <= 30)
 }
 
 // ==============================
