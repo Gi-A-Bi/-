@@ -384,6 +384,7 @@ function avatarColor(student) {
 }
 
 function rankInfo(rank) {
+  if (rank === 'diamond') return { label: '다이아', icon: '💎', cls: 'rank-diamond' }
   if (rank === 'gold') return { label: '골드', icon: '🥇', cls: 'rank-gold' }
   if (rank === 'silver') return { label: '실버', icon: '🥈', cls: 'rank-silver' }
   return { label: '브론즈', icon: '🥉', cls: 'rank-bronze' }
@@ -1864,7 +1865,9 @@ async function renderLevelsSettings() {
     { key: '브론즈', rank: 'bronze', icon: '🥉' },
     { key: '실버', rank: 'silver', icon: '🥈' },
     { key: '골드', rank: 'gold', icon: '🥇' },
+    { key: '다이아', rank: 'diamond', icon: '💎' },
   ]
+  const maxLevel = levels.reduce((m, lv) => Math.max(m, lv.level), 0)
 
   const rows = levels.map(lv => {
     const rank = lv.rank
@@ -1899,8 +1902,15 @@ async function renderLevelsSettings() {
       • 등급: <b>🥉/🥈/🥉 버튼을 한 번 누르면</b> 그 레벨 등급이 바로 바뀜 → 등급 구간 조절
     </div>
     <div class="level-edit-list">${rows}</div>
+    <div class="level-add-row">
+      <button class="btn-add-level" id="add-level">＋ 레벨 추가 (Lv.${maxLevel + 1})</button>
+      ${maxLevel > 30
+        ? `<button class="btn-mini danger" id="del-level" title="가장 높은 레벨 삭제">🗑 Lv.${maxLevel} 삭제</button>`
+        : ''}
+    </div>
     <div class="hint-text" style="margin-top:8px;">
-      💡 레벨 1의 기준 XP는 항상 0이에요. 바꾼 값은 모든 학생의 레벨·등급 계산에 바로 반영됩니다.
+      💡 레벨 1의 기준 XP는 항상 0이에요. "레벨 추가"로 Lv.30 위에 원하는 만큼 레벨을 늘릴 수 있고(등급은 자유 지정),
+      추가한 레벨은 가장 높은 것부터 삭제할 수 있어요. 바꾼 값은 모든 학생의 레벨·등급 계산에 바로 반영됩니다.
     </div>
   `
 
@@ -1952,6 +1962,34 @@ async function renderLevelsSettings() {
       })
     })
   })
+
+  // 레벨 추가
+  const addBtn = document.getElementById('add-level')
+  if (addBtn) addBtn.onclick = async () => {
+    addBtn.disabled = true
+    try {
+      const res = await api(`/api/classes/${state.classId}/level-table`, { method: 'POST' })
+      showToast(`Lv.${res.level} 추가됨 (기준 XP ${Number(res.min_xp).toLocaleString()})`, 'success', '➕')
+      await renderLevelsSettings()
+    } catch (e) {
+      showToast(e.message, 'error')
+      addBtn.disabled = false
+    }
+  }
+
+  // 최고 레벨 삭제 (추가한 31+ 레벨만)
+  const delBtn = document.getElementById('del-level')
+  if (delBtn) delBtn.onclick = () => {
+    showConfirm('레벨 삭제', `가장 높은 레벨(Lv.${maxLevel})을 삭제할까요?`, async () => {
+      try {
+        await api(`/api/classes/${state.classId}/level-table/${maxLevel}`, { method: 'DELETE' })
+        showToast(`Lv.${maxLevel} 삭제됨`, 'success', '🗑️')
+        await renderLevelsSettings()
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    })
+  }
 }
 
 // 저장 성공 시 잔잔한 초록 플래시
@@ -2193,14 +2231,16 @@ async function renderSkillsSettings() {
 
   const rows = editableLevels.map(lv => {
     const rank = lv.rank
-    const rankBadge = rank === 'gold' ? '🥇' : rank === 'silver' ? '🥈' : '🥉'
+    const ri = rankInfo(rank)
+    const rankBadge = ri.icon
+    const rankLabel = ri.label
 
     if (lv.is_choice) {
       return `
         <div class="skill-edit-item choice" data-level="${lv.level}">
           <div class="skill-edit-head">
             <span class="level-pill">Lv.${lv.level}</span>
-            <span class="rank-badge rank-${rank}">${rankBadge} ${rank === 'gold' ? '골드' : rank === 'silver' ? '실버' : '브론즈'}</span>
+            <span class="rank-badge rank-${rank}">${rankBadge} ${rankLabel}</span>
             <span class="choice-tag">A/B 선택형</span>
           </div>
           <div class="skill-edit-row">
@@ -2222,7 +2262,7 @@ async function renderSkillsSettings() {
         <div class="skill-edit-item" data-level="${lv.level}">
           <div class="skill-edit-head">
             <span class="level-pill">Lv.${lv.level}</span>
-            <span class="rank-badge rank-${rank}">${rankBadge} ${rank === 'gold' ? '골드' : rank === 'silver' ? '실버' : '브론즈'}</span>
+            <span class="rank-badge rank-${rank}">${rankBadge} ${rankLabel}</span>
             <span class="unlock-tag">자동 해금</span>
           </div>
           <div class="skill-edit-row">
