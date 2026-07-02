@@ -2621,3 +2621,7 @@ button {
   text-align: center;
   line-height: 1.4;
 }
+
+/* 헤더 효과음 버튼 — 음소거 상태는 살짝 흐리게 */
+.icon-btn.is-muted { opacity: 0.55; }
+.icon-btn.is-muted i { color: var(--text-dim); }
