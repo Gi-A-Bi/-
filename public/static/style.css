@@ -344,7 +344,7 @@ button {
 
 .student-card.has-pending {
   border-color: var(--gold);
-  animation: pulse-border 1.6s infinite;
+  box-shadow: var(--shadow), 0 0 0 2px rgba(243, 199, 97, 0.22);
 }
 
 @keyframes pulse-border {
@@ -510,6 +510,45 @@ button {
   align-items: center;
 }
 .skill-count i { color: var(--gold); }
+
+/* ===== 학생 카드 v2 (가독성 강화: 큰 이미지·이름·등급 / 작은 레벨) ===== */
+.student-card.card-v2 {
+  gap: 9px;
+  padding: 18px 10px 14px;
+}
+
+/* 아바타(이미지)를 크고 넓게 */
+.card-v2 .avatar-card {
+  width: 96px;
+  height: 96px;
+  font-size: 40px;
+}
+.card-v2 .avatar-card.avatar-emoji { font-size: 56px; }
+/* 사진 아바타는 둥근 사각형으로 더 넓게 보여줌 (얼굴이 더 크게 나옴) */
+.card-v2 .avatar-card.avatar-photo {
+  width: 100%;
+  max-width: 128px;
+  height: 116px;
+  border-radius: 16px;
+}
+
+/* 이름 크게 */
+.display-name.lg .nickname { font-size: 18px; }
+.display-name.lg .real-name { font-size: 12px; }
+
+/* 등급 배지 크게 */
+.rank-badge.rank-badge-lg {
+  font-size: 14px;
+  padding: 5px 13px;
+  gap: 4px;
+}
+
+/* 레벨은 작게, 아바타·이름·등급 아래에 */
+.level-pill.level-pill-sm {
+  font-size: 10px;
+  padding: 1px 7px;
+  opacity: 0.9;
+}
 
 /* ===== 학생 상세 (화면 2) ===== */
 .detail-hero {
