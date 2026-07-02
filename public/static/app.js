@@ -1082,7 +1082,7 @@ function rankRowHtml(s, i) {
   const rank = rankInfo(s.rank)
   const name = escapeHtml(s.nickname || s.name || '')
   return `
-    <li class="rank-item ${i < 3 ? 'rank-top' : ''}" data-id="${s.id}">
+    <li class="rank-item rrow-${s.rank} ${i < 3 ? 'rank-top' : ''}" data-id="${s.id}">
       ${badge}
       <div class="rank-avatar avatar ${avatarCls}" style="${bgStyle}">${avatarContent(s)}</div>
       <div class="rank-info">
@@ -1547,7 +1547,7 @@ async function renderDetail(id) {
   main.innerHTML = `
     <div class="view-container">
       <!-- 캐릭터 헤로 -->
-      <div class="detail-hero">
+      <div class="detail-hero rank-${s.rank}">
         <button class="detail-hero-delete" id="student-delete-btn" title="학생 삭제" aria-label="학생 삭제">
           <i class="fa-solid fa-trash-can"></i>
           <span>학생 삭제</span>
