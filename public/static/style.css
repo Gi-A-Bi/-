@@ -2664,3 +2664,104 @@ button {
 /* 헤더 효과음 버튼 — 음소거 상태는 살짝 흐리게 */
 .icon-btn.is-muted { opacity: 0.55; }
 .icon-btn.is-muted i { color: var(--text-dim); }
+
+/* ===== 레벨·등급 편집 (설정 > 레벨·등급 탭) ===== */
+.settings-hint-info {
+  background: #eef2ff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  padding: 11px 12px;
+  color: #3730a3;
+  text-align: left;
+  line-height: 1.6;
+  font-size: 13px;
+}
+.level-edit-list { display: flex; flex-direction: column; gap: 8px; }
+.level-edit-item {
+  background: #fff;
+  border-radius: 14px;
+  padding: 12px 12px 12px 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  border-left: 6px solid #cbd5e1;
+}
+.level-edit-item.rank-bronze { border-left-color: #b87333; }
+.level-edit-item.rank-silver { border-left-color: #9aa7b4; }
+.level-edit-item.rank-gold   { border-left-color: #e6b422; }
+
+.lvl-left { flex-shrink: 0; }
+.lvl-pill {
+  display: inline-block;
+  background: linear-gradient(180deg, #4b3a86, #2a1a4a);
+  color: #fde68a;
+  font-weight: 800;
+  font-size: 15px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  letter-spacing: 0.3px;
+  min-width: 62px;
+  text-align: center;
+}
+.lvl-xp { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 160px; }
+.lvl-xp > label, .lvl-grade > label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+  flex-shrink: 0;
+}
+.f-minxp {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  color: #1f2937;
+  background: #f8fafc;
+  text-align: right;
+}
+.f-minxp:focus {
+  outline: none;
+  border-color: #7c3aed;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+.f-minxp[readonly] { background: #eef2f7; color: #94a3b8; cursor: not-allowed; }
+
+.lvl-grade { flex-basis: 100%; display: flex; align-items: center; gap: 10px; }
+.grade-seg { display: flex; gap: 6px; flex: 1; }
+.grade-seg-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  font-weight: 800;
+  font-size: 13px;
+  border: 2px solid #e5e7eb;
+  background: #f8fafc;
+  color: #94a3b8;
+  transition: transform 0.1s, background 0.12s, border-color 0.12s, color 0.12s;
+}
+.grade-seg-btn .gseg-icon { font-size: 15px; filter: grayscale(0.7); opacity: 0.55; }
+.grade-seg-btn:active { transform: scale(0.96); }
+.grade-seg-btn.active .gseg-icon { filter: none; opacity: 1; }
+.grade-seg-btn.bronze.active {
+  background: linear-gradient(180deg, #e8a878, #b87333);
+  color: #fff5e0; border-color: #8a5a2b;
+}
+.grade-seg-btn.silver.active {
+  background: linear-gradient(180deg, #e6ecf2, #b9c3cd);
+  color: #1a1f28; border-color: #8794a1;
+}
+.grade-seg-btn.gold.active {
+  background: linear-gradient(180deg, #fde68a, #f3c761);
+  color: #3a2700; border-color: #c79a2b;
+}

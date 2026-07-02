@@ -1821,14 +1821,12 @@ async function renderSettings() {
         <button class="settings-tab ${state.settingsTab === 'activities' ? 'active' : ''}" data-tab="activities">
           ⚡ 활동 점수
         </button>
+        <button class="settings-tab ${state.settingsTab === 'levels' ? 'active' : ''}" data-tab="levels">
+          🏅 레벨·등급
+        </button>
         <button class="settings-tab ${state.settingsTab === 'skills' ? 'active' : ''}" data-tab="skills">
           🎁 스킬 내용
         </button>
-      </div>
-
-      <div class="hint-text" style="background:#ede9fe;border-radius:12px;margin-bottom:10px;padding:10px;color:#5b21b6;text-align:left;line-height:1.5;">
-        💡 게임 뼈대(레벨별 기준 XP, 등급 구간, HP 규칙)는 고정입니다.<br/>
-        설정에서 수정 가능한 것은 ① 활동별 점수와 ② 스킬 이름·보상 설명 두 가지입니다.
       </div>
 
       <div id="settings-body"></div>
@@ -1845,9 +1843,122 @@ async function renderSettings() {
 
   if (state.settingsTab === 'activities') {
     await renderActivitiesSettings()
+  } else if (state.settingsTab === 'levels') {
+    await renderLevelsSettings()
   } else {
     await renderSkillsSettings()
   }
+}
+
+// ----- 레벨 기준 XP / 등급 구간 편집 -----
+//  각 레벨의 "기준 XP"(그 레벨이 되는 데 필요한 누적 경험치)와 "등급"을 바로 수정.
+//  가독성: 등급별 색 구분 + 큰 입력칸 + 등급 3버튼(원탭) + 자동 저장.
+async function renderLevelsSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  const levels = await api(`/api/classes/${state.classId}/level-table`)
+  state.levelTable = levels
+
+  const GRADES = [
+    { key: '브론즈', rank: 'bronze', icon: '🥉' },
+    { key: '실버', rank: 'silver', icon: '🥈' },
+    { key: '골드', rank: 'gold', icon: '🥇' },
+  ]
+
+  const rows = levels.map(lv => {
+    const rank = lv.rank
+    const isFirst = lv.level === 1
+    const segBtns = GRADES.map(g => `
+      <button type="button" class="grade-seg-btn ${g.rank} ${lv.grade === g.key ? 'active' : ''}"
+        data-grade="${g.key}" title="${g.key}">
+        <span class="gseg-icon">${g.icon}</span><span class="gseg-label">${g.key}</span>
+      </button>`).join('')
+    return `
+      <div class="level-edit-item rank-${rank}" data-level="${lv.level}">
+        <div class="lvl-left">
+          <span class="lvl-pill">Lv.${lv.level}</span>
+        </div>
+        <div class="lvl-xp">
+          <label>기준 XP</label>
+          <input type="number" class="f-minxp" value="${lv.min_xp}" min="0" step="10"
+            ${isFirst ? 'readonly title="레벨 1은 항상 0"' : ''} />
+        </div>
+        <div class="lvl-grade">
+          <label>등급</label>
+          <div class="grade-seg">${segBtns}</div>
+        </div>
+      </div>
+    `
+  }).join('')
+
+  body.innerHTML = `
+    <div class="hint-text settings-hint-info">
+      🏅 각 레벨이 되는 데 필요한 <b>기준 XP</b>와 <b>등급</b>을 직접 바꿀 수 있어요.<br/>
+      • 기준 XP: 칸을 눌러 숫자 입력 → 다른 곳을 누르면 <b>자동 저장</b> (이전·다음 레벨 사이 값이어야 함)<br/>
+      • 등급: <b>🥉/🥈/🥉 버튼을 한 번 누르면</b> 그 레벨 등급이 바로 바뀜 → 등급 구간 조절
+    </div>
+    <div class="level-edit-list">${rows}</div>
+    <div class="hint-text" style="margin-top:8px;">
+      💡 레벨 1의 기준 XP는 항상 0이에요. 바꾼 값은 모든 학생의 레벨·등급 계산에 바로 반영됩니다.
+    </div>
+  `
+
+  // 기준 XP 자동 저장 (blur)
+  body.querySelectorAll('.level-edit-item').forEach(item => {
+    const level = Number(item.dataset.level)
+    const xpInput = item.querySelector('.f-minxp')
+
+    if (xpInput && !xpInput.readOnly) {
+      xpInput.addEventListener('blur', async () => {
+        const val = Math.trunc(Number(xpInput.value))
+        const prev = (state.levelTable.find(l => l.level === level) || {}).min_xp
+        if (val === prev) return
+        try {
+          await api(`/api/classes/${state.classId}/level-table/${level}`, {
+            method: 'PUT',
+            body: JSON.stringify({ min_xp: val }),
+          })
+          const row = state.levelTable.find(l => l.level === level)
+          if (row) row.min_xp = val
+          flashSaved(item)
+        } catch (e) {
+          showToast(e.message, 'error')
+          xpInput.value = prev   // 실패 시 원복
+        }
+      })
+    }
+
+    // 등급 버튼 (원탭 저장)
+    item.querySelectorAll('.grade-seg-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const grade = btn.dataset.grade
+        const row = state.levelTable.find(l => l.level === level)
+        if (row && row.grade === grade) return
+        try {
+          await api(`/api/classes/${state.classId}/level-table/${level}`, {
+            method: 'PUT',
+            body: JSON.stringify({ grade }),
+          })
+          if (row) { row.grade = grade; row.rank = grade === '골드' ? 'gold' : grade === '실버' ? 'silver' : 'bronze' }
+          // 버튼 활성 상태 갱신
+          item.querySelectorAll('.grade-seg-btn').forEach(b => b.classList.toggle('active', b === btn))
+          // 행 색상 갱신
+          item.className = `level-edit-item rank-${row ? row.rank : 'bronze'}`
+          flashSaved(item)
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      })
+    })
+  })
+}
+
+// 저장 성공 시 잔잔한 초록 플래시
+function flashSaved(el) {
+  el.style.transition = 'background 0.3s'
+  el.style.background = 'rgba(74, 222, 128, 0.16)'
+  setTimeout(() => { el.style.background = '' }, 600)
 }
 
 // ----- 활동 점수 편집 -----

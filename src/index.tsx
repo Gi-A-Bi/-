@@ -869,6 +869,60 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
 })
 
 // =================================================================
+// 레벨 기준 XP / 등급 수정 (전역 levels 테이블)
+//   - body: { min_xp?, grade? }
+//   - min_xp 는 이전 레벨보다 크고 다음 레벨보다 작아야 함(순서 보존)
+//   - grade 는 브론즈/실버/골드 중 하나
+// =================================================================
+app.put('/api/classes/:classId/level-table/:level', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const level = Number(c.req.param('level'))
+  const body = await c.req.json<{ min_xp?: number; grade?: string }>().catch(() => ({} as any))
+  const sb = makeSupabase(c.env)
+
+  const all = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+  const target = all.find(l => l.level === level)
+  if (!target) return c.json({ error: '해당 레벨이 없습니다' }, 404)
+
+  const patch: Record<string, any> = {}
+
+  if (body.grade !== undefined) {
+    const g = String(body.grade).trim()
+    if (!['브론즈', '실버', '골드'].includes(g)) {
+      return c.json({ error: '등급은 브론즈/실버/골드 중 하나여야 합니다' }, 400)
+    }
+    patch.grade = g
+  }
+
+  if (body.min_xp !== undefined) {
+    const xp = Math.trunc(Number(body.min_xp))
+    if (!Number.isFinite(xp) || xp < 0) {
+      return c.json({ error: '기준 XP는 0 이상의 숫자여야 합니다' }, 400)
+    }
+    if (level === 1 && xp !== 0) {
+      return c.json({ error: '레벨 1의 기준 XP는 0이어야 합니다' }, 400)
+    }
+    const prev = all.filter(l => l.level < level).sort((a, b) => b.level - a.level)[0]
+    const next = all.filter(l => l.level > level).sort((a, b) => a.level - b.level)[0]
+    if (prev && xp <= prev.min_xp) {
+      return c.json({ error: `기준 XP는 이전 레벨(Lv.${prev.level} = ${prev.min_xp})보다 커야 해요` }, 400)
+    }
+    if (next && xp >= next.min_xp) {
+      return c.json({ error: `기준 XP는 다음 레벨(Lv.${next.level} = ${next.min_xp})보다 작아야 해요` }, 400)
+    }
+    patch.min_xp = xp
+  }
+
+  if (Object.keys(patch).length === 0) return c.json({ success: true, no_changes: true })
+
+  await sb.update('levels', patch, `level=eq.${level}`, false)
+  return c.json({ success: true, ...patch })
+})
+
+// =================================================================
 // 활동(점수 버튼) CRUD
 // =================================================================
 // 활동명 → 이모지 자동 추천 (서버에서도 한 번 매칭. NULL인 경우의 대체값)
