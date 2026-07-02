@@ -524,7 +524,14 @@ app.get('/api/students/:id', async (c) => {
       permanent: !!s.permanent,
       uses_left: s.permanent ? null : (typeof s.uses_left === 'number' ? s.uses_left : 1),
       uses_total: s.permanent ? null : (typeof s.uses_total === 'number' ? s.uses_total : (typeof s.uses_left === 'number' ? s.uses_left : 1)),
+      can_reselect: !!(s.from_choice && s.choice_a && s.choice_b),
     }))
+  const usedList = (Array.isArray(e.used_skills) ? e.used_skills : []).map((u: UsedSkill) => ({
+    key: u.uid || u.used_at,
+    name: u.name,
+    level: u.level,
+    used_at: u.used_at,
+  }))
   const pending_choices = owned
     .filter(s => s.pending && s.choice_a && s.choice_b)
     .map(s => ({
@@ -534,7 +541,7 @@ app.get('/api/students/:id', async (c) => {
       choice_b: s.choice_b!,
     }))
 
-  return c.json({ ...e, skills, pending_choices })
+  return c.json({ ...e, skills, pending_choices, used_list: usedList })
 })
 
 // =================================================================
@@ -731,11 +738,20 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
     consumed = false
     newOwned = owned.map(s => (s.uid === skillUid ? { ...s, uses_left: usesLeft } : s))
   } else {
-    // 마지막 1회 → 완전 소모(used로 이동)
+    // 마지막 1회 → 완전 소모(used로 이동). 복구를 위해 정보 보관
     newOwned = owned.filter(s => s.uid !== skillUid)
     newUsed = [
       ...used,
-      { name: target.name, level: target.level, used_at: new Date().toISOString() },
+      {
+        uid: target.uid,
+        name: target.name,
+        level: target.level,
+        used_at: new Date().toISOString(),
+        uses_total: typeof target.uses_total === 'number' ? target.uses_total : 1,
+        choice_a: target.choice_a,
+        choice_b: target.choice_b,
+        from_choice: target.from_choice,
+      },
     ]
   }
 
@@ -781,6 +797,7 @@ app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
     return {
       uid: s.uid, name: picked, level: s.level, acquired_at: s.acquired_at,
       ...skillUsesFields(s.uses_seed ?? 1),
+      choice_a: s.choice_a, choice_b: s.choice_b, from_choice: true, uses_seed: s.uses_seed ?? 1,
     }
   })
 
@@ -794,6 +811,87 @@ app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
   }], false)
 
   return c.json({ success: true, picked })
+})
+
+// =================================================================
+// 사용한 스킬 복구 (used → owned 되돌리기)
+//   - :key 는 학생 GET 의 used_list[].key (uid 또는 used_at)
+// =================================================================
+app.post('/api/students/:id/skills/:key/restore', async (c) => {
+  const studentId = c.req.param('id')
+  const key = decodeURIComponent(c.req.param('key'))
+  const result = await loadOwnedStudent(c, studentId)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const owned: OwnedSkill[] = Array.isArray(student.owned_skills) ? student.owned_skills : []
+  const used: UsedSkill[] = Array.isArray(student.used_skills) ? student.used_skills : []
+
+  const idx = used.findIndex(u => (u.uid || u.used_at) === key)
+  if (idx < 0) return c.json({ error: '복구할 스킬을 찾을 수 없습니다' }, 404)
+  const u = used[idx]
+
+  const total = typeof u.uses_total === 'number' && u.uses_total >= 1 ? Math.min(3, u.uses_total) : 1
+  const restored: OwnedSkill = {
+    uid: u.uid || shortUid(),
+    name: u.name,
+    level: u.level,
+    acquired_at: new Date().toISOString(),
+    uses_left: total,
+    uses_total: total,
+  }
+  if (u.from_choice && u.choice_a && u.choice_b) {
+    restored.from_choice = true
+    restored.choice_a = u.choice_a
+    restored.choice_b = u.choice_b
+    restored.uses_seed = total
+  }
+
+  const newUsed = used.filter((_, i) => i !== idx)
+  const newOwned = [...owned, restored]
+  await sb.update('students', { owned_skills: newOwned, used_skills: newUsed }, `id=eq.${studentId}`, false)
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id, student_id: student.id, type: 'skill_use',
+    name: `${u.name} 스킬 복구`, score: 0,
+  }], false)
+
+  return c.json({ success: true })
+})
+
+// =================================================================
+// 보상 다시 선택 (A/B 선택으로 얻은 스킬을 선택 대기로 되돌림)
+// =================================================================
+app.post('/api/students/:id/skills/:uid/reselect', async (c) => {
+  const studentId = c.req.param('id')
+  const skillUid = c.req.param('uid')
+  const result = await loadOwnedStudent(c, studentId)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const owned: OwnedSkill[] = Array.isArray(student.owned_skills) ? student.owned_skills : []
+  const target = owned.find(s => s.uid === skillUid)
+  if (!target) return c.json({ error: '스킬을 찾을 수 없습니다' }, 404)
+  if (!target.from_choice || !target.choice_a || !target.choice_b) {
+    return c.json({ error: '선택형 보상이 아니에요', code: 'NOT_CHOICE' }, 400)
+  }
+
+  const newOwned = owned.map(s => {
+    if (s.uid !== skillUid) return s
+    return {
+      uid: s.uid,
+      name: `[선택] A.${s.choice_a} / B.${s.choice_b}`,
+      level: s.level,
+      pending: true,
+      choice_a: s.choice_a,
+      choice_b: s.choice_b,
+      acquired_at: s.acquired_at,
+      uses_seed: typeof s.uses_seed === 'number' ? s.uses_seed : 1,
+    } as OwnedSkill
+  })
+  await sb.update('students', { owned_skills: newOwned }, `id=eq.${studentId}`, false)
+  return c.json({ success: true })
 })
 
 // =================================================================
