@@ -33,6 +33,10 @@ export interface OwnedSkill {
   choice_a?: string
   choice_b?: string
   acquired_at: string      // ISO timestamp
+  permanent?: boolean      // 계속 유지(상시) 스킬 — 사용해도 소모되지 않음
+  uses_left?: number       // 남은 사용 횟수 (N회권)
+  uses_total?: number      // 최초 부여 횟수 (표시용)
+  uses_seed?: number       // 선택 대기(pending) 시, 선택 후 적용할 unlock_uses 보관
 }
 
 export interface UsedSkill {
@@ -72,6 +76,7 @@ export interface LevelRow {
   grade: '브론즈' | '실버' | '골드' | string
   unlock_skill: string | null
   passive_skill: string | null
+  unlock_uses?: number   // 0=계속 유지(상시), 1~3=N회권. 기본 1
 }
 
 export interface ActivityLogRow {

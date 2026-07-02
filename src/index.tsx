@@ -204,6 +204,17 @@ async function loadOwnedActivity(c: any, activityId: string): Promise<{ activity
 }
 
 // =================================================================
+// 헬퍼: unlock_uses → 보유 스킬의 사용횟수 필드
+//   0 = 계속 유지(상시), 1~3 = N회권
+// =================================================================
+function skillUsesFields(unlock_uses: number | null | undefined): Partial<OwnedSkill> {
+  const u = Math.trunc(Number(unlock_uses))
+  if (u === 0) return { permanent: true }
+  const n = Number.isFinite(u) && u >= 1 ? Math.min(3, u) : 1
+  return { uses_left: n, uses_total: n }
+}
+
+// =================================================================
 // 헬퍼: 학생 row → enriched
 // =================================================================
 function enrichStudent(s: StudentRow, levelTable: LevelRow[]) {
@@ -510,6 +521,9 @@ app.get('/api/students/:id', async (c) => {
       skill_name: s.name,
       source_level: s.level,
       acquired_at: s.acquired_at,
+      permanent: !!s.permanent,
+      uses_left: s.permanent ? null : (typeof s.uses_left === 'number' ? s.uses_left : 1),
+      uses_total: s.permanent ? null : (typeof s.uses_total === 'number' ? s.uses_total : (typeof s.uses_left === 'number' ? s.uses_left : 1)),
     }))
   const pending_choices = owned
     .filter(s => s.pending && s.choice_a && s.choice_b)
@@ -614,6 +628,7 @@ app.post('/api/students/:id/score', async (c) => {
               choice_a: parsed.choice_a,
               choice_b: parsed.choice_b,
               acquired_at: nowIso,
+              uses_seed: Math.trunc(Number(lv.unlock_uses ?? 1)),
             })
             newPendingChoices.push({
               uid,
@@ -627,6 +642,7 @@ app.post('/api/students/:id/score', async (c) => {
               name: parsed.plain,
               level: lv.level,
               acquired_at: nowIso,
+              ...skillUsesFields(lv.unlock_uses),
             })
             newSkills.push(parsed.plain)
           }
@@ -699,12 +715,29 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
   const target = owned.find(s => s.uid === skillUid)
   if (!target) return c.json({ error: '스킬을 찾을 수 없습니다' }, 404)
   if (target.pending) return c.json({ error: '아직 선택하지 않은 보상은 사용할 수 없습니다' }, 400)
+  if (target.permanent) return c.json({ error: '상시 스킬은 소모되지 않아요', code: 'PERMANENT' }, 400)
 
-  const newOwned = owned.filter(s => s.uid !== skillUid)
-  const newUsed: UsedSkill[] = [
-    ...used,
-    { name: target.name, level: target.level, used_at: new Date().toISOString() },
-  ]
+  // 남은 횟수: 명시값 없으면 1회권으로 간주(기존 데이터 호환)
+  const left = typeof target.uses_left === 'number' ? target.uses_left : 1
+
+  let newOwned: OwnedSkill[]
+  let newUsed: UsedSkill[] = used
+  let usesLeft = 0
+  let consumed = true
+
+  if (left > 1) {
+    // 아직 남음 → 1 차감하고 보유 유지
+    usesLeft = left - 1
+    consumed = false
+    newOwned = owned.map(s => (s.uid === skillUid ? { ...s, uses_left: usesLeft } : s))
+  } else {
+    // 마지막 1회 → 완전 소모(used로 이동)
+    newOwned = owned.filter(s => s.uid !== skillUid)
+    newUsed = [
+      ...used,
+      { name: target.name, level: target.level, used_at: new Date().toISOString() },
+    ]
+  }
 
   await sb.update(
     'students',
@@ -716,11 +749,11 @@ app.post('/api/students/:id/skills/:uid/use', async (c) => {
     class_id: student.class_id,
     student_id: student.id,
     type: 'skill_use',
-    name: `${target.name} 스킬 사용`,
+    name: consumed ? `${target.name} 스킬 사용` : `${target.name} 스킬 사용 (${usesLeft}회 남음)`,
     score: 0,
   }], false)
 
-  return c.json({ success: true })
+  return c.json({ success: true, consumed, uses_left: usesLeft })
 })
 
 // =================================================================
@@ -745,7 +778,10 @@ app.post('/api/students/:id/choices/:uid/resolve', async (c) => {
 
   const newOwned: OwnedSkill[] = owned.map(s => {
     if (s.uid !== choiceUid) return s
-    return { uid: s.uid, name: picked, level: s.level, acquired_at: s.acquired_at }
+    return {
+      uid: s.uid, name: picked, level: s.level, acquired_at: s.acquired_at,
+      ...skillUsesFields(s.uses_seed ?? 1),
+    }
   })
 
   await sb.update('students', { owned_skills: newOwned }, `id=eq.${studentId}`, false)
@@ -821,6 +857,7 @@ app.get('/api/classes/:classId/level-table', async (c) => {
       rank: gradeToRank(lv.grade),
       passive_skill: lv.passive_skill,
       unlock_skill: lv.unlock_skill,
+      unlock_uses: lv.unlock_uses ?? 1,
       is_choice: parsed.is_choice ? 1 : 0,
       choice_a: parsed.choice_a,
       choice_b: parsed.choice_b,
@@ -842,6 +879,7 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
     choice_a?: string | null
     choice_b?: string | null
     reward_desc?: string | null
+    unlock_uses?: number
   }>()
   const sb = makeSupabase(c.env)
 
@@ -861,6 +899,10 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
     patch.unlock_skill = body.reward_desc || null
   }
   if (body.passive_skill !== undefined) patch.passive_skill = body.passive_skill || null
+  if (body.unlock_uses !== undefined) {
+    const u = Math.trunc(Number(body.unlock_uses))
+    patch.unlock_uses = u === 0 ? 0 : Math.min(3, Math.max(1, Number.isFinite(u) ? u : 1))
+  }
 
   if (Object.keys(patch).length === 0) return c.json({ success: true, no_changes: true })
 

@@ -23,6 +23,8 @@
 4. Supabase Auth 설정에서 **Email confirmations** 를 꺼두면 회원가입 즉시 로그인되어 편함 (Authentication → Providers → Email → Confirm email OFF)
 5. **Supabase SQL Editor에서** `migrations/supabase_0003_class_bonus_xp.sql` 실행
    → `classes.bonus_xp` 컬럼 추가 (학급 전체 경험치의 학급 단위 보상/차감용). 안 돌리면 학급 경험치 "조정" 시 오류.
+6. **Supabase SQL Editor에서** `migrations/supabase_0004_skill_unlock_uses.sql` 실행
+   → `levels.unlock_uses` 컬럼 추가 (스킬 보상의 상시/회권 구분). 안 돌리면 스킬 유형·횟수 설정 시 오류.
 
 ## 데이터 저장소
 
@@ -70,7 +72,7 @@
 | POST | `/api/students/:id/choices/:uid/resolve` | A/B 보상 선택 |
 | GET | `/api/classes/:classId/logs` | 활동 기록 |
 | GET | `/api/classes/:classId/level-table` | 레벨/스킬 표 |
-| PUT | `/api/classes/:classId/level-table/:level/skill` | 스킬 텍스트 수정 |
+| PUT | `/api/classes/:classId/level-table/:level/skill` | 스킬 보상 수정(유형·이름·A/B·`unlock_uses`). 유형: 없음/자동해금/A-B선택, `unlock_uses` 0=상시·1~3=회권 |
 | PUT | `/api/classes/:classId/level-table/:level` | 레벨 기준 XP(`min_xp`)·등급(`grade`) 수정. 순서 검증(이전<현재<다음). grade: 브론즈/실버/골드/다이아 |
 | POST | `/api/classes/:classId/level-table` | 가장 높은 레벨 위에 새 레벨 1개 추가(min_xp 자동, grade 지정 가능) |
 | DELETE | `/api/classes/:classId/level-table/:level` | 가장 높은 레벨 삭제(추가한 31+ 레벨만, 기본 30 이하는 보호) |
