@@ -948,6 +948,44 @@ async function navigate(view, params = {}) {
 // ==============================
 // 화면 1: 학생 목록
 // ==============================
+// 등급별 희귀도 별
+function rankStars(rank) {
+  return ({ bronze: '★', silver: '★★', gold: '★★★', diamond: '✦✦✦✦' })[rank] || '★'
+}
+// HP 하트 (채운 하트 + 빈 하트)
+function hpHearts(hp, max = 3) {
+  const h = Math.max(0, Math.min(max, Number(hp) || 0))
+  return '❤'.repeat(h) + '🤍'.repeat(Math.max(0, max - h))
+}
+// 학생 → 트레이딩 카드 마크업
+function cardHtml(s) {
+  const rank = rankInfo(s.rank)
+  const pending = s.pending_choice_count > 0
+  const hasImg = hasAvatarImage(s)
+  const artInner = hasImg
+    ? `<img class="tc-photo" src="${s.avatar_image}" alt="" draggable="false"/>`
+    : `<span class="tc-em">${s.avatar_emoji ? s.avatar_emoji : escapeHtml(getInitial(s.name))}</span>`
+  const c = avatarColor(s)
+  const artStyle = hasImg ? '' : `style="background: radial-gradient(circle at 50% 30%, rgba(255,255,255,.4), transparent 56%), linear-gradient(155deg, ${c}, ${c}aa);"`
+  const name = escapeHtml(s.nickname || s.name || '')
+  return `
+    <div class="tcard rank-${s.rank} ${pending ? 'is-pending' : ''}" data-id="${s.id}">
+      <div class="tc-art" ${artStyle}>${artInner}<span class="tc-mold"></span></div>
+      <div class="tc-gloss"></div>
+      <span class="tc-corner tl"></span><span class="tc-corner tr"></span><span class="tc-corner bl"></span><span class="tc-corner br"></span>
+      ${s.rank === 'diamond' ? '<span class="tc-foil"></span><span class="tc-spark a">✦</span><span class="tc-spark b">✧</span>' : ''}
+      <div class="tc-hp">${hpHearts(s.hp, s.max_hp || 3)}</div>
+      <div class="tc-lv">Lv.${s.level}</div>
+      ${pending ? '<div class="tc-pending">🎁 선택</div>' : ''}
+      <div class="tc-info">
+        <div class="tc-rarity">${rankStars(s.rank)}</div>
+        <div class="tc-name">${name}</div>
+        <div class="tc-badge">${rank.icon} ${rank.label}</div>
+      </div>
+    </div>
+  `
+}
+
 async function renderList() {
   const students = await api(`/api/classes/${state.classId}/students`)
   state.students = students
@@ -973,23 +1011,7 @@ async function renderList() {
     return
   }
 
-  const cards = students.map(s => {
-    const rank = rankInfo(s.rank)
-    const pending = s.pending_choice_count > 0
-    const hasImg = hasAvatarImage(s)
-    const bgStyle = hasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
-    const avatarCls = hasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
-    return `
-      <div class="student-card card-v2 ${pending ? 'has-pending' : ''}" data-id="${s.id}">
-        <div class="avatar avatar-card ${avatarCls}" style="${bgStyle}">
-          ${avatarContent(s)}
-        </div>
-        ${displayNameHtml(s, { size: 'lg' })}
-        <span class="rank-badge rank-badge-lg ${rank.cls}">${rank.icon} ${rank.label}</span>
-        <span class="level-pill level-pill-sm">Lv.${s.level}</span>
-      </div>
-    `
-  }).join('')
+  const cards = students.map(s => cardHtml(s)).join('')
 
   // === 학급 전체 경험치 (학생 xp 합계 + 보정치) ===
   const totalStudentXp = students.reduce((sum, s) => sum + (Number(s.xp) || 0), 0)
