@@ -891,8 +891,8 @@ app.put('/api/classes/:classId/level-table/:level', async (c) => {
 
   if (body.grade !== undefined) {
     const g = String(body.grade).trim()
-    if (!['브론즈', '실버', '골드'].includes(g)) {
-      return c.json({ error: '등급은 브론즈/실버/골드 중 하나여야 합니다' }, 400)
+    if (!['브론즈', '실버', '골드', '다이아'].includes(g)) {
+      return c.json({ error: '등급은 브론즈/실버/골드/다이아 중 하나여야 합니다' }, 400)
     }
     patch.grade = g
   }
@@ -920,6 +920,81 @@ app.put('/api/classes/:classId/level-table/:level', async (c) => {
 
   await sb.update('levels', patch, `level=eq.${level}`, false)
   return c.json({ success: true, ...patch })
+})
+
+// =================================================================
+// 레벨 추가 (가장 높은 레벨 위에 새 레벨 1개 추가)
+//   - body: { grade? }  (없으면 직전 최고 레벨의 등급을 이어받음)
+//   - min_xp 는 직전 간격만큼 자동으로 더 높게 설정 (이후 편집 가능)
+// =================================================================
+app.post('/api/classes/:classId/level-table', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ grade?: string }>().catch(() => ({} as any))
+  const sb = makeSupabase(c.env)
+
+  const all = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+  if (all.length === 0) return c.json({ error: '레벨표가 비어 있습니다' }, 400)
+
+  const sorted = [...all].sort((a, b) => a.level - b.level)
+  const last = sorted[sorted.length - 1]
+  const secondLast = sorted[sorted.length - 2]
+  let gap = secondLast ? last.min_xp - secondLast.min_xp : 1000
+  if (!Number.isFinite(gap) || gap <= 0) gap = 1000
+
+  const newLevel = last.level + 1
+  const newMinXp = last.min_xp + gap
+
+  let grade = last.grade
+  if (body.grade !== undefined) {
+    const g = String(body.grade).trim()
+    if (!['브론즈', '실버', '골드', '다이아'].includes(g)) {
+      return c.json({ error: '등급은 브론즈/실버/골드/다이아 중 하나여야 합니다' }, 400)
+    }
+    grade = g
+  }
+
+  await sb.insert('levels', [{
+    level: newLevel,
+    min_xp: newMinXp,
+    grade,
+    unlock_skill: null,
+    passive_skill: last.passive_skill ?? null,
+  }], false)
+
+  return c.json({
+    success: true,
+    level: newLevel,
+    min_xp: newMinXp,
+    grade,
+    rank: gradeToRank(grade),
+  })
+})
+
+// =================================================================
+// 레벨 삭제 (가장 높은 레벨만, 기본 30레벨 아래로는 못 내려감)
+// =================================================================
+app.delete('/api/classes/:classId/level-table/:level', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const level = Number(c.req.param('level'))
+  const sb = makeSupabase(c.env)
+
+  const all = await sb.select<LevelRow>('levels', 'select=level&order=level.desc&limit=1')
+  const maxLevel = all[0]?.level ?? 0
+  if (level !== maxLevel) {
+    return c.json({ error: '가장 높은 레벨만 삭제할 수 있어요', code: 'NOT_TOP_LEVEL' }, 400)
+  }
+  if (maxLevel <= 30) {
+    return c.json({ error: '기본 30레벨은 삭제할 수 없어요', code: 'MIN_LEVELS' }, 400)
+  }
+
+  await sb.delete('levels', `level=eq.${level}`)
+  return c.json({ success: true, deleted_level: level })
 })
 
 // =================================================================

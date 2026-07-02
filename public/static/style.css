@@ -501,6 +501,16 @@ button {
     inset 0 -1px 0 rgba(0,0,0,0.3),
     0 0 14px rgba(243, 199, 97, 0.5);
 }
+.rank-diamond {
+  background: linear-gradient(180deg, #cffafe 0%, #38bdf8 45%, #0369a1 100%);
+  color: #06283a;
+  border: 1px solid #0e7490;
+  box-shadow:
+    0 2px 6px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    inset 0 -1px 0 rgba(0,0,0,0.3),
+    0 0 14px rgba(56, 189, 248, 0.55);
+}
 
 .skill-count {
   font-size: 11px;
@@ -2765,3 +2775,26 @@ button {
   background: linear-gradient(180deg, #fde68a, #f3c761);
   color: #3a2700; border-color: #c79a2b;
 }
+
+/* ===== 다이아 등급 (레벨 편집 카드/세그먼트) ===== */
+.level-edit-item.rank-diamond { border-left-color: #22d3ee; }
+.grade-seg-btn.diamond.active {
+  background: linear-gradient(180deg, #cffafe, #38bdf8);
+  color: #06283a;
+  border-color: #0e7490;
+}
+
+/* 등급이 4개가 되어 세그먼트 버튼을 더 컴팩트하게 */
+.grade-seg { gap: 5px; }
+.grade-seg-btn { padding: 9px 3px; font-size: 12px; gap: 3px; }
+.grade-seg-btn .gseg-icon { font-size: 14px; }
+
+/* 레벨 추가 / 삭제 버튼 줄 */
+.level-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 12px;
+}
+.level-add-row .btn-add-level { flex: 1; margin: 0; }
+.level-add-row .btn-mini { flex-shrink: 0; padding: 0 14px; font-size: 13px; }

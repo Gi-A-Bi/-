@@ -95,7 +95,8 @@ export interface ParsedSkillInfo {
 // =============================================================================
 // 유틸: grade → rank(영문)
 // =============================================================================
-export function gradeToRank(grade: string): 'bronze' | 'silver' | 'gold' {
+export function gradeToRank(grade: string): 'bronze' | 'silver' | 'gold' | 'diamond' {
+  if (grade === '다이아' || grade === '다이아몬드' || /dia(mond)?/i.test(grade)) return 'diamond'
   if (grade === '실버' || /silver/i.test(grade)) return 'silver'
   if (grade === '골드' || /gold/i.test(grade)) return 'gold'
   return 'bronze'

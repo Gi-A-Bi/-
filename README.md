@@ -71,7 +71,9 @@
 | GET | `/api/classes/:classId/logs` | 활동 기록 |
 | GET | `/api/classes/:classId/level-table` | 레벨/스킬 표 |
 | PUT | `/api/classes/:classId/level-table/:level/skill` | 스킬 텍스트 수정 |
-| PUT | `/api/classes/:classId/level-table/:level` | 레벨 기준 XP(`min_xp`)·등급(`grade`) 수정. 순서 검증(이전<현재<다음) |
+| PUT | `/api/classes/:classId/level-table/:level` | 레벨 기준 XP(`min_xp`)·등급(`grade`) 수정. 순서 검증(이전<현재<다음). grade: 브론즈/실버/골드/다이아 |
+| POST | `/api/classes/:classId/level-table` | 가장 높은 레벨 위에 새 레벨 1개 추가(min_xp 자동, grade 지정 가능) |
+| DELETE | `/api/classes/:classId/level-table/:level` | 가장 높은 레벨 삭제(추가한 31+ 레벨만, 기본 30 이하는 보호) |
 | GET/POST | `/api/classes/:classId/activities` | 활동 버튼 목록/추가 |
 | PUT/DELETE | `/api/activities/:id` | 활동 버튼 수정/삭제 |
 
@@ -84,6 +86,7 @@
 ## 게임 규칙
 
 - 레벨 1~30, 등급: 브론즈(Lv1~6) / 실버(Lv7~12) / 골드(Lv13~30) — **기본값**. 설정 > 레벨·등급 탭에서 레벨별 기준 XP와 등급을 자유롭게 조정 가능 (전역 `levels` 테이블)
+- 등급은 **브론즈 / 실버 / 골드 / 다이아** 4종. 레벨은 Lv.30 위로 **원하는 만큼 추가/삭제** 가능(추가한 상위 레벨부터 삭제)
 - 패시브: Lv1~2 "도서 대여 / 1인 1역 자격", Lv3+ "나만의 닉네임"
 - HP 최대 3 (하트 모양)
 - Lv5/10/20은 A/B 선택형 보상
