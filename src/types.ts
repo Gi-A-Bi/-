@@ -20,6 +20,7 @@ export interface ClassRow {
   id: string
   name: string
   owner_email: string | null
+  bonus_xp?: number   // 학급 전체 경험치 보정치 (학생 xp 합계에 더해짐, 학급 단위 보상/차감용)
   created_at?: string
 }
 

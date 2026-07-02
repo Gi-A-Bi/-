@@ -334,6 +334,29 @@ app.post('/api/classes/:id/claim', async (c) => {
 })
 
 // =================================================================
+// 학급 전체 경험치(bonus_xp) 조정
+//   - "학급 전체 경험치" = 모든 학생 xp 합계 + bonus_xp
+//   - delta 양수 = 학급 보상, 음수 = 학급 차감
+//   - 개별 학생의 xp 는 전혀 변하지 않고 이 보정치만 조정됨
+// =================================================================
+app.post('/api/classes/:classId/class-xp', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ delta: number }>().catch(() => ({} as any))
+  const delta = Math.trunc(Number(body.delta || 0))
+  if (!delta) return c.json({ error: '조정할 경험치를 입력해주세요' }, 400)
+
+  const sb = makeSupabase(c.env)
+  const current = Number((owned as ClassRow).bonus_xp || 0)
+  const newBonus = current + delta
+  await sb.update('classes', { bonus_xp: newBonus }, `id=eq.${classId}`, false)
+
+  return c.json({ success: true, bonus_xp: newBonus, delta })
+})
+
+// =================================================================
 // 학생 목록 (학급 소유권 검증)
 // =================================================================
 app.get('/api/classes/:classId/students', async (c) => {

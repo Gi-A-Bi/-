@@ -21,11 +21,13 @@
     WHERE id = '00000000-0000-0000-0000-000000000001';
    ```
 4. Supabase Auth 설정에서 **Email confirmations** 를 꺼두면 회원가입 즉시 로그인되어 편함 (Authentication → Providers → Email → Confirm email OFF)
+5. **Supabase SQL Editor에서** `migrations/supabase_0003_class_bonus_xp.sql` 실행
+   → `classes.bonus_xp` 컬럼 추가 (학급 전체 경험치의 학급 단위 보상/차감용). 안 돌리면 학급 경험치 "조정" 시 오류.
 
 ## 데이터 저장소
 
 **Supabase** (PostgreSQL).
-- `classes` (id, name, **owner_email**, created_at)
+- `classes` (id, name, **owner_email**, **bonus_xp**, created_at)
 - `students` (class_id, name, nickname, **avatar_emoji / avatar_color / avatar_image**, xp, hp, owned/used_skills(JSON))
 - `activities` (class_id, name, score, **emoji**, sort_order) — 점수 버튼
 - `activity_logs` (class_id 로 학급 분리)
@@ -50,6 +52,7 @@
 | GET | `/api/my-class` | ✅ | 내 학급 (`owner_email = 내 이메일`) + 가져올 수 있는 학급 목록 |
 | POST | `/api/classes` | ✅ | 새 학급 만들기. body: `{ name }`. 활동(점수버튼) 12개 자동 시드 |
 | POST | `/api/classes/:id/claim` | ✅ | 주인 없는 기존 학급을 내 학급으로 가져오기 |
+| POST | `/api/classes/:classId/class-xp` | ✅ | 학급 전체 경험치 조정. body: `{ delta }` (양수=보상, 음수=차감). `classes.bonus_xp` 만 변경하고 개별 학생 xp 는 그대로 |
 
 ### 학생 / 게임 데이터 (모두 `owner_email` 검증)
 
@@ -111,6 +114,13 @@
   - 자동 추천이 마음에 안 들면 **이모지 버튼을 클릭해서 직접 선택** — 한 번 직접 고른 활동은 활동명을 바꿔도 그대로 유지 (선생님 의도 보존)
   - 선택기 모달 안의 `↺ 자동 추천으로` 버튼으로 다시 자동 추천 모드로 되돌릴 수 있음
   - 학생 상세의 점수 버튼, 활동 기록의 아이콘, 토스트 알림 — 모두 새 이모지가 자동 반영
+
+### 학급 목록 가시성 · 학급 경험치 · 순위 (2026-07)
+
+- **학생 목록 그리드 반응형** — 기존 고정 2열에서 `auto-fill`(카드 최소 130px)로 변경. 모바일은 2열 그대로, PC 등 넓은 화면에선 자동으로 여러 열이 되어 학생 전체가 **한눈에** 보임. 목록 화면(`.list-view`)만 데스크톱에서 폭을 넓히고(≥760px 940px, ≥1180px 1120px) 상세/기록/설정 화면은 읽기 좋은 폭 유지
+- **학급 전체 경험치 배너** — 목록 상단에 `모든 학생 xp 합계 + bonus_xp` 를 크게 표시. 학생 합계와 보너스 보정치를 분리해서 보여줌
+- **학급 경험치 조정 (보상 / 차감)** — 배너의 `조정` 버튼 → 모달. `+100/+500/+1000` (보상), `−100/−500/−1000` (차감) 프리셋 + 직접 입력. `classes.bonus_xp` 만 바뀌고 **개별 학생 경험치는 변하지 않음** (학급 단위 파티 보상 소진 등에 사용)
+- **학급 순위 배너** — 경험치 내림차순으로 전 학생을 나열. 1~3위는 🥇🥈🥉 메달, 나머지는 순위 번호. 각 줄에 아바타/닉네임/레벨/등급/XP 표시, 클릭하면 해당 학생 상세로 이동
 
 ## 기술 스택
 

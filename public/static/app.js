@@ -5,6 +5,7 @@
 const state = {
   classId: null,            // 내 학급 UUID (로그인 후 /api/my-class 에서 로드)
   className: '클업',
+  bonusXp: 0,               // 학급 전체 경험치 보정치 (학생 xp 합계 + bonusXp = 학급 전체 경험치)
   view: 'list',             // list | detail | logs | settings
   currentStudentId: null,
   students: [],
@@ -178,6 +179,7 @@ async function bootstrap() {
     if (data.my_class) {
       state.classId = data.my_class.id
       state.className = data.my_class.name || '클업'
+      state.bonusXp = Number(data.my_class.bonus_xp || 0)
       state.booted = true
       return { ok: true, hasClass: true }
     }
@@ -867,7 +869,7 @@ async function renderList() {
 
   if (students.length === 0) {
     main.innerHTML = `
-      <div class="view-container">
+      <div class="view-container list-view">
         <div class="view-title">
           <span>🏰</span> ${className}
           <button class="btn-add-student" id="btn-add-student">+ 학생 추가</button>
@@ -906,18 +908,48 @@ async function renderList() {
     `
   }).join('')
 
+  // === 학급 전체 경험치 (학생 xp 합계 + 보정치) ===
+  const totalStudentXp = students.reduce((sum, s) => sum + (Number(s.xp) || 0), 0)
+  const bonusXp = Number(state.bonusXp) || 0
+  const classTotalXp = totalStudentXp + bonusXp
+  const bonusText = bonusXp
+    ? ` · 보너스 ${bonusXp > 0 ? '+' : '−'}${Math.abs(bonusXp).toLocaleString()}`
+    : ''
+
+  // === 순위 (경험치 내림차순) ===
+  const ranked = [...students].sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+  const rankRows = ranked.map((s, i) => rankRowHtml(s, i)).join('')
+
   main.innerHTML = `
-    <div class="view-container">
+    <div class="view-container list-view">
       <div class="view-title">
         <span>🏰</span> ${className}
         <span class="class-meta">${students.length}명</span>
         <button class="btn-add-student" id="btn-add-student">+ 학생</button>
       </div>
+
+      <div class="class-xp-banner">
+        <div class="cxp-main">
+          <div class="cxp-label"><span class="cxp-emoji">🏫</span> 학급 전체 경험치</div>
+          <div class="cxp-value">${classTotalXp.toLocaleString()}<span class="cxp-unit">XP</span></div>
+          <div class="cxp-breakdown">학생 합계 ${totalStudentXp.toLocaleString()}${bonusText}</div>
+        </div>
+        <button class="cxp-adjust-btn" id="btn-class-xp">
+          <i class="fa-solid fa-scale-balanced"></i> 조정
+        </button>
+      </div>
+
+      <div class="rank-banner">
+        <div class="rank-banner-title"><span>🏆</span> 학급 순위</div>
+        <ol class="rank-list">${rankRows}</ol>
+      </div>
+
       <div class="student-grid">${cards}</div>
     </div>
   `
 
   document.getElementById('btn-add-student').onclick = showAddStudentModal
+  document.getElementById('btn-class-xp').onclick = showClassXpModal
 
   main.querySelectorAll('.student-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -925,6 +957,106 @@ async function renderList() {
       navigate('detail', { studentId: id })
     })
   })
+
+  main.querySelectorAll('.rank-item').forEach(item => {
+    item.addEventListener('click', () => {
+      navigate('detail', { studentId: item.dataset.id })
+    })
+  })
+}
+
+// 순위 배너의 한 줄 (i: 0-based 순위 인덱스)
+function rankRowHtml(s, i) {
+  const medals = ['🥇', '🥈', '🥉']
+  const badge = i < 3
+    ? `<span class="rank-medal">${medals[i]}</span>`
+    : `<span class="rank-num">${i + 1}</span>`
+  const hasImg = hasAvatarImage(s)
+  const bgStyle = hasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
+  const avatarCls = hasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
+  const rank = rankInfo(s.rank)
+  const name = escapeHtml(s.nickname || s.name || '')
+  return `
+    <li class="rank-item ${i < 3 ? 'rank-top' : ''}" data-id="${s.id}">
+      ${badge}
+      <div class="rank-avatar avatar ${avatarCls}" style="${bgStyle}">${avatarContent(s)}</div>
+      <div class="rank-info">
+        <div class="rank-name">${name}</div>
+        <div class="rank-sub">Lv.${s.level} · ${rank.icon} ${rank.label}</div>
+      </div>
+      <div class="rank-xp">${(Number(s.xp) || 0).toLocaleString()}<span class="rank-xp-unit">XP</span></div>
+    </li>
+  `
+}
+
+// ==============================
+// 학급 전체 경험치 조정 모달 (보상 + / 차감 −)
+//  - 개별 학생 xp 는 변하지 않고 학급 보정치(bonus_xp)만 조정
+// ==============================
+function showClassXpModal() {
+  const container = document.getElementById('modal-container')
+  const totalStudentXp = state.students.reduce((sum, s) => sum + (Number(s.xp) || 0), 0)
+  const bonusXp = Number(state.bonusXp) || 0
+  const classTotalXp = totalStudentXp + bonusXp
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">🏫 학급 전체 경험치 조정</div>
+        <div class="cxp-modal-current">
+          현재 <strong>${classTotalXp.toLocaleString()} XP</strong>
+          <span class="cxp-modal-hint">(학생 합계 ${totalStudentXp.toLocaleString()} · 보너스 ${bonusXp.toLocaleString()})</span>
+        </div>
+        <div class="cxp-preset-row">
+          <button class="cxp-preset cxp-plus" data-v="100">+100</button>
+          <button class="cxp-preset cxp-plus" data-v="500">+500</button>
+          <button class="cxp-preset cxp-plus" data-v="1000">+1000</button>
+          <button class="cxp-preset cxp-minus" data-v="-100">−100</button>
+          <button class="cxp-preset cxp-minus" data-v="-500">−500</button>
+          <button class="cxp-preset cxp-minus" data-v="-1000">−1000</button>
+        </div>
+        <div style="margin-top:10px;">
+          <label style="font-size:12px; color:var(--text-light); font-weight:bold;">직접 입력 (음수면 차감)</label>
+          <input type="number" id="cxp-delta" placeholder="예: 200 또는 -150"
+            style="width:100%; padding:10px; border:2px solid var(--card-border-dim); border-radius:10px; font-family:inherit; font-size:14px; margin-top:4px; background:var(--bg-base); color:var(--text);" />
+        </div>
+        <div class="cxp-note">※ 개별 학생 경험치는 변하지 않고, 학급 전체 값만 조정됩니다.</div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+          <button class="btn-confirm" id="modal-confirm">적용</button>
+        </div>
+      </div>
+    </div>
+  `
+  const deltaInput = document.getElementById('cxp-delta')
+  container.querySelectorAll('.cxp-preset').forEach(b => {
+    b.onclick = () => { deltaInput.value = b.dataset.v; deltaInput.focus() }
+  })
+  document.getElementById('modal-cancel').onclick = () => { container.innerHTML = '' }
+  document.getElementById('modal-confirm').onclick = async () => {
+    const delta = Math.trunc(Number(deltaInput.value) || 0)
+    if (!delta) { showToast('조정할 경험치를 입력해주세요', 'warning'); return }
+    container.innerHTML = ''
+    await adjustClassXp(delta)
+  }
+  setTimeout(() => deltaInput.focus(), 50)
+}
+
+async function adjustClassXp(delta) {
+  try {
+    const res = await api(`/api/classes/${state.classId}/class-xp`, {
+      method: 'POST',
+      body: JSON.stringify({ delta }),
+    })
+    state.bonusXp = Number(res.bonus_xp || 0)
+    showToast(
+      `학급 경험치 ${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString()} 적용`,
+      delta > 0 ? 'success' : 'warning',
+      delta > 0 ? '🎁' : '➖',
+    )
+    await renderList()
+  } catch (e) {
+    showToast('조정 실패: ' + e.message, 'error')
+  }
 }
 
 // ==============================
