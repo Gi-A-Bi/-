@@ -291,9 +291,10 @@ button {
 }
 
 /* ===== 학생 카드 그리드 (화면 1) ===== */
+/* 화면 폭에 맞춰 자동으로 열 개수를 늘려 한눈에 보이도록 (모바일 2열 → 데스크톱 다열) */
 .student-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 12px;
 }
 
@@ -2387,4 +2388,236 @@ button {
 }
 .activity-edit-item .f-emoji.emoji-edit-btn:active {
   transform: scale(0.96);
+}
+
+/* =================================================================
+   데스크톱: 학생 목록(list-view)만 넓게 펼쳐 한눈에 보이게
+   (상세/기록/설정 화면은 읽기 좋은 폭으로 유지)
+   ================================================================= */
+@media (min-width: 760px) {
+  #app { max-width: 940px; }
+  /* 목록이 아닌 화면들은 가운데 정렬 + 적당한 폭 유지 */
+  .view-container:not(.list-view) {
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+@media (min-width: 1180px) {
+  #app { max-width: 1120px; }
+}
+
+/* =================================================================
+   학급 전체 경험치 배너
+   ================================================================= */
+.class-xp-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(243, 199, 97, 0.16), rgba(192, 132, 252, 0.12));
+  border: 2px solid var(--card-border-dim);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+.class-xp-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 85% 20%, rgba(243, 199, 97, 0.18), transparent 55%);
+  pointer-events: none;
+}
+.cxp-main { flex: 1; min-width: 0; z-index: 1; }
+.cxp-label {
+  font-size: 13px;
+  color: var(--text-light);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cxp-emoji { font-size: 15px; }
+.cxp-value {
+  font-family: 'Nanum Myeongjo', serif;
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--gold-light);
+  line-height: 1.1;
+  margin-top: 2px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 14px rgba(243, 199, 97, 0.35);
+}
+.cxp-value .cxp-unit {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text-light);
+  margin-left: 5px;
+  -webkit-text-fill-color: initial;
+}
+.cxp-breakdown {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+.cxp-adjust-btn {
+  z-index: 1;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #fde68a, #c9a14a 60%, #7a5e1f);
+  color: #2a1500;
+  font-weight: 800;
+  font-size: 14px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid #7a5e1f;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), 0 0 12px rgba(243, 199, 97, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.12s;
+}
+.cxp-adjust-btn:active { transform: scale(0.94); }
+
+/* =================================================================
+   순위 배너
+   ================================================================= */
+.rank-banner {
+  background: var(--card-bg);
+  border: 2px solid var(--card-border-dim);
+  border-radius: 16px;
+  padding: 12px 12px 8px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.rank-banner-title {
+  font-family: 'Nanum Myeongjo', serif;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gold-light);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.rank-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.12s;
+  border: 1px solid transparent;
+}
+.rank-item:hover { background: rgba(243, 199, 97, 0.08); }
+.rank-item:active { transform: scale(0.99); }
+.rank-item.rank-top {
+  background: rgba(243, 199, 97, 0.07);
+  border-color: rgba(243, 199, 97, 0.25);
+}
+.rank-medal {
+  font-size: 20px;
+  width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.rank-num {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-dim);
+  width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.rank-item .rank-avatar.avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+.rank-item .rank-avatar.avatar.avatar-emoji { font-size: 20px; }
+.rank-info { flex: 1; min-width: 0; }
+.rank-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rank-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+.rank-xp {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--gold-light);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.rank-xp-unit {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 3px;
+  font-weight: 600;
+}
+
+/* =================================================================
+   학급 경험치 조정 모달
+   ================================================================= */
+.cxp-modal-current {
+  text-align: center;
+  color: var(--text-light);
+  font-size: 15px;
+  margin-top: 6px;
+}
+.cxp-modal-current strong { color: var(--gold-light); font-size: 18px; }
+.cxp-modal-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+.cxp-preset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+.cxp-preset {
+  padding: 10px 0;
+  border-radius: 10px;
+  font-weight: 800;
+  font-size: 15px;
+  border: 2px solid var(--card-border-dim);
+  background: var(--bg-base);
+  color: var(--text);
+  transition: transform 0.1s, border-color 0.1s, background 0.1s;
+}
+.cxp-preset:active { transform: scale(0.95); }
+.cxp-preset.cxp-plus { color: var(--success); }
+.cxp-preset.cxp-plus:hover { border-color: var(--success); background: rgba(74, 222, 128, 0.12); }
+.cxp-preset.cxp-minus { color: var(--danger); }
+.cxp-preset.cxp-minus:hover { border-color: var(--danger); background: rgba(255, 85, 119, 0.12); }
+.cxp-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 10px;
+  text-align: center;
+  line-height: 1.4;
 }
