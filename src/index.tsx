@@ -42,6 +42,10 @@ app.get('/', (c) => {
             </span>
           </div>
           <div class="header-actions">
+            <button class="icon-btn" id="nav-sound" title="효과음" aria-label="효과음">
+              <i class="fa-solid fa-volume-high"></i>
+              <span class="icon-label">소리</span>
+            </button>
             <button class="icon-btn" id="nav-logs" title="활동 기록" aria-label="활동 기록">
               <i class="fa-solid fa-clock-rotate-left"></i>
               <span class="icon-label">기록</span>

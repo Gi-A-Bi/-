@@ -26,6 +26,94 @@ const state = {
 const AUTH_STORAGE_KEY = 'classup_auth_v1'
 
 // ==============================
+// 효과음 (Web Audio API로 실시간 합성 — 오디오 파일 없이 은은한 톤)
+//  - 낮은 음량 + 부드러운 엔벨로프(클릭음 방지) + 짧은 길이로 조잡하지 않게
+//  - 헤더의 소리 버튼으로 끌 수 있음 (localStorage 저장)
+// ==============================
+const SOUND_STORAGE_KEY = 'classup_sound_v1'
+state.soundOn = localStorage.getItem(SOUND_STORAGE_KEY) !== 'off'
+
+const Sound = (() => {
+  let ctx = null
+  function ac() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext
+      if (!AC) return null
+      ctx = new AC()
+    }
+    if (ctx.state === 'suspended') ctx.resume()
+    return ctx
+  }
+  // 한 음 재생: 부드러운 attack/release 엔벨로프로 딱딱한 클릭음 제거
+  function note(freq, t0, dur, { type = 'sine', gain = 0.13, glideTo = null } = {}) {
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    osc.type = type
+    osc.frequency.setValueAtTime(freq, t0)
+    if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t0 + dur)
+    const attack = 0.008
+    const release = Math.max(0.04, dur * 0.7)
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(gain, t0 + attack)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + release)
+    osc.connect(g)
+    g.connect(ctx.destination)
+    osc.start(t0)
+    osc.stop(t0 + dur + release + 0.02)
+  }
+  function play(builder) {
+    if (!state.soundOn) return
+    const c = ac()
+    if (!c) return
+    try { builder(c.currentTime) } catch (_) {}
+  }
+  return {
+    // 점수 부여(+): 살짝 위로 올라가는 짧고 맑은 톤
+    scoreUp() { play(t => note(660, t, 0.10, { type: 'triangle', gain: 0.12, glideTo: 740 })) },
+    // 점수 차감(−): 살짝 내려가는 낮고 부드러운 톤
+    scoreDown() { play(t => note(320, t, 0.14, { type: 'triangle', gain: 0.11, glideTo: 250 })) },
+    // 레벨업: 은은한 상승 아르페지오 (C5-E5-G5-C6)
+    levelUp() {
+      play(t => {
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+          note(f, t + i * 0.085, 0.16, { type: 'triangle', gain: 0.12 }))
+      })
+    },
+    // 스킬/보상 획득: 반짝이는 두 음 (G5 → D6)
+    skillGet() {
+      play(t => {
+        note(783.99, t, 0.12, { type: 'sine', gain: 0.12 })
+        note(1174.66, t + 0.09, 0.20, { type: 'sine', gain: 0.10 })
+      })
+    },
+    // 스킬 사용: 부드럽게 스치는 하강음
+    skillUse() { play(t => note(880, t, 0.18, { type: 'sine', gain: 0.10, glideTo: 587.33 })) },
+    // HP 변화(작고 조용한 틱)
+    hpUp() { play(t => note(880, t, 0.07, { type: 'sine', gain: 0.08 })) },
+    hpDown() { play(t => note(392, t, 0.09, { type: 'sine', gain: 0.08 })) },
+  }
+})()
+
+function toggleSound() {
+  state.soundOn = !state.soundOn
+  localStorage.setItem(SOUND_STORAGE_KEY, state.soundOn ? 'on' : 'off')
+  updateSoundButton()
+  if (state.soundOn) Sound.scoreUp()   // 켤 때 짧은 미리듣기
+}
+
+function updateSoundButton() {
+  const btn = document.getElementById('nav-sound')
+  if (!btn) return
+  const on = state.soundOn
+  const icon = btn.querySelector('i')
+  if (icon) icon.className = on ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark'
+  const label = btn.querySelector('.icon-label')
+  if (label) label.textContent = on ? '소리' : '음소거'
+  btn.title = on ? '효과음 켜짐' : '효과음 꺼짐'
+  btn.classList.toggle('is-muted', !on)
+}
+
+// ==============================
 // Auth 세션 저장/복원
 // ==============================
 function saveAuthSession() {
@@ -1048,6 +1136,7 @@ async function adjustClassXp(delta) {
       body: JSON.stringify({ delta }),
     })
     state.bonusXp = Number(res.bonus_xp || 0)
+    delta > 0 ? Sound.scoreUp() : Sound.scoreDown()
     showToast(
       `학급 경험치 ${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString()} 적용`,
       delta > 0 ? 'success' : 'warning',
@@ -1584,12 +1673,15 @@ async function addScore(studentId, name, delta) {
       body: JSON.stringify({ activity_name: name, score_delta: delta }),
     })
     showToast(`${name} ${delta >= 0 ? '+' : ''}${delta} XP`, delta >= 0 ? 'success' : 'warning', activityEmoji(name))
+    delta >= 0 ? Sound.scoreUp() : Sound.scoreDown()
 
     if (res.leveled_up) {
+      setTimeout(() => Sound.levelUp(), 240)
       setTimeout(() => {
         showToast(`🎉 레벨 ${res.new_level} 달성!`, 'level-up', '🎉')
       }, 300)
       if (res.new_skills && res.new_skills.length > 0) {
+        setTimeout(() => Sound.skillGet(), 640)
         res.new_skills.forEach((skillName, i) => {
           setTimeout(() => {
             showToast(`새 스킬: ${skillName}`, 'level-up', '🎁')
@@ -1617,6 +1709,7 @@ async function adjustHp(studentId, delta) {
       method: 'POST',
       body: JSON.stringify({ delta }),
     })
+    delta >= 0 ? Sound.hpUp() : Sound.hpDown()
     await renderDetail(studentId)
   } catch (e) {
     showToast(e.message, 'error')
@@ -1627,6 +1720,7 @@ async function useSkill(studentId, skillUid, name) {
   try {
     await api(`/api/students/${studentId}/skills/${skillUid}/use`, { method: 'POST' })
     showToast(`${name} 스킬을 사용했어요!`, 'success', '✨')
+    Sound.skillUse()
     await renderDetail(studentId)
   } catch (e) {
     showToast(e.message, 'error')
@@ -1640,6 +1734,7 @@ async function resolveChoice(studentId, choiceUid, pick) {
       body: JSON.stringify({ pick }),
     })
     showToast(`보상 획득: ${res.picked}`, 'level-up', '🎁')
+    Sound.skillGet()
     await renderDetail(studentId)
   } catch (e) {
     showToast(e.message, 'error')
@@ -2205,6 +2300,9 @@ function showAppShell() {
   document.getElementById('nav-logs').onclick = () => navigate('logs')
   document.getElementById('nav-settings').onclick = () => navigate('settings')
   document.getElementById('header-title').onclick = () => navigate('list')
+  const soundBtn = document.getElementById('nav-sound')
+  if (soundBtn) soundBtn.onclick = toggleSound
+  updateSoundButton()
   document.getElementById('nav-logout').onclick = async () => {
     if (!confirm(`${state.authEmail || ''} 계정에서 로그아웃 하시겠습니까?`)) return
     await signOut()
