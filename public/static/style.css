@@ -2912,3 +2912,79 @@ button {
 
 /* 보상 선택 대기: 은은한 외곽 강조 */
 .tcard.is-pending { box-shadow: 0 16px 30px rgba(0,0,0,.45), 0 0 0 3px rgba(243,199,97,.5), 0 0 22px rgba(243,199,97,.5); }
+
+/* =================================================================
+   #3 다이아 홀로그램 애니메이션 (움직이는 무지개 + 반짝임)
+   ================================================================= */
+@property --holo {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes holo-rotate { to { --holo: 360deg; } }
+@keyframes holo-shimmer {
+  0%, 100% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+}
+/* 목록 카드 다이아: 회전하는 무지개 테두리 + 흐르는 홀로 sheen */
+.tcard.rank-diamond {
+  background: linear-gradient(#161228, #161228) padding-box,
+    conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+  animation: holo-rotate 7s linear infinite;
+}
+.tcard.rank-diamond .tc-foil {
+  background-size: 220% 220%;
+  animation: holo-shimmer 4.5s ease-in-out infinite;
+}
+
+/* =================================================================
+   #1 상세 화면(캐릭터 시트) 등급 프레임 — 목록 카드와 톤 통일
+   ================================================================= */
+.detail-hero { border: 3px solid var(--card-border-dim); }
+.detail-hero.rank-bronze { border-color: #a56a38; box-shadow: var(--shadow-lg), 0 0 22px rgba(184,115,51,.3); }
+.detail-hero.rank-silver { border: 4px solid; border-image: linear-gradient(155deg,#fff,#c2cdda,#8f9db0,#e6edf4) 1; box-shadow: var(--shadow-lg), 0 0 24px rgba(190,210,230,.35); }
+.detail-hero.rank-gold { border: 5px solid; border-image: linear-gradient(150deg,#fff4bd,#f3c761,#a8791e,#ffe89a,#c79a2b) 1; box-shadow: var(--shadow-lg), 0 0 40px rgba(243,199,97,.5); }
+.detail-hero.rank-diamond {
+  border: 5px solid transparent;
+  background: var(--card-bg) padding-box,
+    conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+  animation: holo-rotate 7s linear infinite;
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(120,220,255,.5), 0 0 70px rgba(255,120,200,.35);
+}
+/* 히어로 아바타에 등급 링 */
+.detail-hero.rank-bronze .avatar-lg { box-shadow: 0 0 0 3px #b87333, 0 6px 14px rgba(0,0,0,.4); }
+.detail-hero.rank-silver .avatar-lg { box-shadow: 0 0 0 3px #c2cdda, 0 6px 14px rgba(0,0,0,.4); }
+.detail-hero.rank-gold .avatar-lg { box-shadow: 0 0 0 3px #f3c761, 0 0 20px rgba(243,199,97,.6), 0 6px 14px rgba(0,0,0,.4); }
+.detail-hero.rank-diamond .avatar-lg { box-shadow: 0 0 0 3px #7df9ff, 0 0 22px rgba(120,220,255,.6), 0 6px 14px rgba(0,0,0,.4); }
+
+/* =================================================================
+   #1 순위 배너 행 — 등급별 좌측 강조 + 아바타 링
+   ================================================================= */
+.rank-item { border-left: 4px solid transparent; }
+.rank-item.rrow-bronze { border-left-color: rgba(184,115,51,.7); }
+.rank-item.rrow-silver { border-left-color: rgba(185,195,205,.7); }
+.rank-item.rrow-gold   { border-left-color: rgba(243,199,97,.85); }
+.rank-item.rrow-diamond{ border-left-color: rgba(56,189,248,.9); }
+.rank-item.rrow-gold .rank-avatar { box-shadow: 0 0 0 2px rgba(243,199,97,.8), 0 2px 6px rgba(0,0,0,.3); }
+.rank-item.rrow-diamond .rank-avatar { box-shadow: 0 0 0 2px #7df9ff, 0 0 10px rgba(120,220,255,.5), 0 2px 6px rgba(0,0,0,.3); }
+
+/* =================================================================
+   #2 헤더 / 학급 경험치 배너 톤 정리 (트레이딩 카드와 어울리게)
+   ================================================================= */
+.class-xp-banner {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0)) ,
+    linear-gradient(135deg, rgba(243,199,97,0.14), rgba(120,220,255,0.10) 55%, rgba(192,132,252,0.12));
+  border-color: rgba(243,199,97,0.35);
+}
+.class-xp-banner::after {
+  background: radial-gradient(circle at 88% 15%, rgba(120,220,255,0.18), transparent 55%);
+}
+.app-header { border-bottom: 1px solid rgba(243,199,97,0.28); box-shadow: 0 4px 18px rgba(0,0,0,0.35); }
+
+/* =================================================================
+   #4 미세 조정 — 접근성: 모션 최소화 선호 시 애니메이션 정지
+   ================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  .tcard.rank-diamond, .detail-hero.rank-diamond, .tcard.rank-diamond .tc-foil { animation: none; }
+}
