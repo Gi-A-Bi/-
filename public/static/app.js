@@ -1525,17 +1525,28 @@ async function renderDetail(id) {
     </div>
   `).join('')
 
-  // 보유 스킬 (uid 기반)
-  const skills = (s.skills || []).map(sk => `
+  // 보유 스킬 (uid 기반) — 상시 스킬 / N회권(남은 횟수) 구분
+  const skills = (s.skills || []).map(sk => {
+    const isPerm = !!sk.permanent
+    const left = typeof sk.uses_left === 'number' ? sk.uses_left : 1
+    const total = typeof sk.uses_total === 'number' ? sk.uses_total : left
+    const tag = isPerm
+      ? `<span class="skill-tag perm">🔁 상시 유지</span>`
+      : `<span class="skill-tag uses">${left}회 남음${total > 1 ? ` <span class="uses-total">/ ${total}회</span>` : ''}</span>`
+    const action = isPerm
+      ? `<span class="use-btn perm-btn" title="상시 유지되는 스킬이에요">상시</span>`
+      : `<button class="use-btn" data-skill-uid="${sk.uid}" data-skill-name="${escapeHtml(sk.skill_name)}">사용하기</button>`
+    return `
     <div class="skill-card">
       <div class="skill-icon">${skillEmoji(sk.skill_name)}</div>
       <div class="skill-info">
         <div class="skill-name">${escapeHtml(sk.skill_name)}</div>
-        <div class="skill-source">Lv.${sk.source_level} 보상</div>
+        <div class="skill-source">Lv.${sk.source_level} 보상 · ${tag}</div>
       </div>
-      <button class="use-btn" data-skill-uid="${sk.uid}" data-skill-name="${escapeHtml(sk.skill_name)}">사용하기</button>
+      ${action}
     </div>
-  `).join('')
+  `
+  }).join('')
 
   const passiveSkill = s.passive_skill || '없음'
 
@@ -1734,8 +1745,12 @@ async function adjustHp(studentId, delta) {
 
 async function useSkill(studentId, skillUid, name) {
   try {
-    await api(`/api/students/${studentId}/skills/${skillUid}/use`, { method: 'POST' })
-    showToast(`${name} 스킬을 사용했어요!`, 'success', '✨')
+    const res = await api(`/api/students/${studentId}/skills/${skillUid}/use`, { method: 'POST' })
+    if (res && res.consumed === false) {
+      showToast(`${name} 사용 (${res.uses_left}회 남음)`, 'success', '✨')
+    } else {
+      showToast(`${name} 스킬을 사용했어요!`, 'success', '✨')
+    }
     Sound.skillUse()
     await renderDetail(studentId)
   } catch (e) {
@@ -2241,109 +2256,131 @@ function showEmojiPicker({ title = '이모지 고르기', current = '', onPick, 
 // ----- 스킬 내용 편집 -----
 // 레벨/XP/등급/선택형 여부 구조는 고정. 스킬 이름·보상 설명·선택지 텍스트만 수정 가능.
 async function renderSkillsSettings() {
-  const body = document.getElementById('settings-body')
-  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+  const bodyEl = document.getElementById('settings-body')
+  bodyEl.innerHTML = '<div class="hint-text">불러오는 중...</div>'
 
   const levels = await api(`/api/classes/${state.classId}/level-table`)
   state.levelTable = levels
 
-  // 해금 스킬이 있거나 선택형인 레벨만 편집 대상으로 표시
-  const editableLevels = levels.filter(lv => lv.unlock_skill || lv.is_choice)
+  // 로컬 편집 모델 (모든 레벨)
+  const model = levels.map(lv => ({
+    level: lv.level,
+    rank: lv.rank,
+    kind: lv.is_choice ? 'choice' : (lv.unlock_skill ? 'auto' : 'none'),
+    name: lv.is_choice ? '' : (lv.reward_desc || lv.unlock_skill || ''),
+    a: lv.choice_a || '',
+    b: lv.choice_b || '',
+    uses: (typeof lv.unlock_uses === 'number' ? lv.unlock_uses : 1),
+  }))
 
-  const rows = editableLevels.map(lv => {
-    const rank = lv.rank
-    const ri = rankInfo(rank)
-    const rankBadge = ri.icon
-    const rankLabel = ri.label
+  const USES = [
+    { v: 0, label: '계속 유지' },
+    { v: 1, label: '1회' },
+    { v: 2, label: '2회' },
+    { v: 3, label: '3회' },
+  ]
 
-    if (lv.is_choice) {
-      return `
-        <div class="skill-edit-item choice" data-level="${lv.level}">
-          <div class="skill-edit-head">
-            <span class="level-pill">Lv.${lv.level}</span>
-            <span class="rank-badge rank-${rank}">${rankBadge} ${rankLabel}</span>
-            <span class="choice-tag">A/B 선택형</span>
-          </div>
-          <div class="skill-edit-row">
-            <label>선택 A</label>
-            <input type="text" class="f-choice-a" value="${escapeHtml(lv.choice_a || '')}" placeholder="예: 숙제 반값 할인권" />
-          </div>
-          <div class="skill-edit-row">
-            <label>선택 B</label>
-            <input type="text" class="f-choice-b" value="${escapeHtml(lv.choice_b || '')}" placeholder="예: 1일 자유석 이용권" />
-          </div>
-          <div class="skill-edit-row">
-            <label>보상 설명</label>
-            <input type="text" class="f-desc" value="${escapeHtml(lv.reward_desc || '')}" placeholder="둘 중 하나를 직접 선택" />
-          </div>
+  async function save(m) {
+    const payload = { unlock_uses: m.uses }
+    if (m.kind === 'none') payload.unlock_skill = ''
+    else if (m.kind === 'auto') payload.unlock_skill = (m.name || '').trim()
+    else { payload.choice_a = (m.a || '').trim(); payload.choice_b = (m.b || '').trim() }
+    await api(`/api/classes/${state.classId}/level-table/${m.level}/skill`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  function rowHtml(m) {
+    const ri = rankInfo(m.rank)
+    const usesSeg = m.kind === 'none' ? '' : `
+      <div class="skill-edit-row">
+        <label>사용 횟수</label>
+        <div class="uses-seg">
+          ${USES.map(u => `<button type="button" class="uses-seg-btn ${m.uses === u.v ? 'active' : ''}" data-uses="${u.v}">${u.label}</button>`).join('')}
         </div>
-      `
-    } else {
-      return `
-        <div class="skill-edit-item" data-level="${lv.level}">
-          <div class="skill-edit-head">
-            <span class="level-pill">Lv.${lv.level}</span>
-            <span class="rank-badge rank-${rank}">${rankBadge} ${rankLabel}</span>
-            <span class="unlock-tag">자동 해금</span>
-          </div>
-          <div class="skill-edit-row">
-            <label>스킬명</label>
-            <input type="text" class="f-name" value="${escapeHtml(lv.unlock_skill || '')}" placeholder="예: 미니펫" />
-          </div>
-          <div class="skill-edit-row">
-            <label>보상 설명</label>
-            <input type="text" class="f-desc" value="${escapeHtml(lv.reward_desc || '')}" placeholder="예: 책상에 인형 1개 전시 허용" />
-          </div>
-        </div>
-      `
+      </div>`
+    let fields = ''
+    if (m.kind === 'auto') {
+      fields = `<div class="skill-edit-row"><label>스킬명</label>
+        <input type="text" class="f-name" value="${escapeHtml(m.name)}" placeholder="예: 미니펫 / 자리 이동권" /></div>`
+    } else if (m.kind === 'choice') {
+      fields = `
+        <div class="skill-edit-row"><label>선택 A</label><input type="text" class="f-a" value="${escapeHtml(m.a)}" placeholder="예: 숙제 반값권" /></div>
+        <div class="skill-edit-row"><label>선택 B</label><input type="text" class="f-b" value="${escapeHtml(m.b)}" placeholder="예: 자유석 이용권" /></div>`
     }
-  }).join('')
+    return `
+      <div class="skill-set-item rank-${m.rank} ${m.kind === 'none' ? 'is-none' : ''}" data-level="${m.level}">
+        <div class="skill-set-head">
+          <span class="level-pill">Lv.${m.level}</span>
+          <span class="rank-badge rank-${m.rank}">${ri.icon} ${ri.label}</span>
+          <select class="f-kind">
+            <option value="none" ${m.kind === 'none' ? 'selected' : ''}>보상 없음</option>
+            <option value="auto" ${m.kind === 'auto' ? 'selected' : ''}>자동 해금</option>
+            <option value="choice" ${m.kind === 'choice' ? 'selected' : ''}>A/B 선택형</option>
+          </select>
+        </div>
+        ${(fields || usesSeg) ? `<div class="skill-set-body">${fields}${usesSeg}</div>` : ''}
+      </div>`
+  }
 
-  body.innerHTML = `
-    <div class="hint-text" style="background:#fef3c7;border-radius:12px;margin-bottom:10px;padding:10px;color:#92400e;text-align:left;line-height:1.5;">
-      🔒 <b>구조 고정</b>: 몇 레벨에 스킬이 해금되는지는 바꿀 수 없습니다.<br/>
-      ✏️ <b>편집 가능</b>: 그 자리의 스킬 이름과 보상 설명만 자유롭게 수정·변경 가능합니다.
-    </div>
-    <div class="skill-edit-list">${rows}</div>
-    <div class="hint-text" style="margin-top:8px;">
-      입력 후 다른 곳을 누르면 자동 저장됩니다.
-    </div>
-  `
+  function flash(el) {
+    el.style.transition = 'background 0.3s'
+    el.style.background = 'rgba(74,222,128,0.16)'
+    setTimeout(() => { el.style.background = '' }, 600)
+  }
 
-  // 자동 저장
-  body.querySelectorAll('.skill-edit-item').forEach(item => {
-    const level = Number(item.dataset.level)
-    const isChoice = item.classList.contains('choice')
-    const inputs = item.querySelectorAll('input')
-    inputs.forEach(inp => {
-      inp.addEventListener('blur', async () => {
-        const reward_desc = item.querySelector('.f-desc').value.trim()
-        const body = { reward_desc }
-        if (isChoice) {
-          body.choice_a = item.querySelector('.f-choice-a').value.trim()
-          body.choice_b = item.querySelector('.f-choice-b').value.trim()
-        } else {
-          const name = item.querySelector('.f-name').value.trim()
-          if (!name) {
-            showToast('스킬명을 입력해주세요', 'warning')
-            return
-          }
-          body.unlock_skill = name
-        }
-        try {
-          await api(`/api/classes/${state.classId}/level-table/${level}/skill`, {
-            method: 'PUT',
-            body: JSON.stringify(body),
-          })
-          item.style.transition = 'background 0.3s'
-          item.style.background = '#dcfce7'
-          setTimeout(() => item.style.background = '', 600)
-        } catch (e) {
-          showToast(e.message, 'error')
-        }
+  function draw() {
+    bodyEl.innerHTML = `
+      <div class="hint-text settings-hint-info">
+        🎁 각 레벨에 줄 <b>보상</b>을 직접 정하세요.<br/>
+        • <b>유형</b>: 보상 없음 / 자동 해금 / A/B 선택형<br/>
+        • <b>사용 횟수</b>: <b>계속 유지</b>(상시 스킬) 또는 <b>1~3회권</b>(쓸 때마다 차감)
+      </div>
+      <div class="skill-set-list">${model.map(rowHtml).join('')}</div>
+      <div class="hint-text" style="margin-top:8px;">입력 후 다른 곳을 누르면 자동 저장돼요. 회권 스킬은 학생 화면에서 "N회 남음"으로 표시되고 사용하면 줄어듭니다.</div>
+    `
+    wire()
+  }
+
+  function wire() {
+    bodyEl.querySelectorAll('.skill-set-item').forEach(item => {
+      const level = Number(item.dataset.level)
+      const m = model.find(x => x.level === level)
+
+      // 유형 변경 → 저장 + 다시 그리기
+      item.querySelector('.f-kind').addEventListener('change', async (e) => {
+        m.kind = e.target.value
+        if (m.uses == null) m.uses = 1
+        try { await save(m) } catch (err) { showToast(err.message, 'error') }
+        draw()
+      })
+
+      // 스킬명 / 선택지 입력 (blur 저장)
+      const nameEl = item.querySelector('.f-name')
+      if (nameEl) nameEl.addEventListener('blur', async () => {
+        m.name = nameEl.value
+        try { await save(m); flash(item) } catch (err) { showToast(err.message, 'error') }
+      })
+      const aEl = item.querySelector('.f-a')
+      const bEl = item.querySelector('.f-b')
+      ;[aEl, bEl].forEach(el => { if (el) el.addEventListener('blur', async () => {
+        m.a = aEl ? aEl.value : m.a; m.b = bEl ? bEl.value : m.b
+        try { await save(m); flash(item) } catch (err) { showToast(err.message, 'error') }
+      }) })
+
+      // 사용 횟수 세그먼트
+      item.querySelectorAll('.uses-seg-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          m.uses = Number(btn.dataset.uses)
+          item.querySelectorAll('.uses-seg-btn').forEach(b => b.classList.toggle('active', b === btn))
+          try { await save(m); flash(item) } catch (err) { showToast(err.message, 'error') }
+        })
       })
     })
-  })
+  }
+
+  draw()
 }
 
 // ==============================
