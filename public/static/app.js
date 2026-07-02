@@ -979,19 +979,13 @@ async function renderList() {
     const bgStyle = hasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
     const avatarCls = hasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
     return `
-      <div class="student-card ${pending ? 'has-pending' : ''}" data-id="${s.id}">
-        ${pending ? `<div class="pending-badge">선택!</div>` : ''}
-        <div class="avatar ${avatarCls}" style="${bgStyle}">
+      <div class="student-card card-v2 ${pending ? 'has-pending' : ''}" data-id="${s.id}">
+        <div class="avatar avatar-card ${avatarCls}" style="${bgStyle}">
           ${avatarContent(s)}
         </div>
-        ${displayNameHtml(s, { size: 'sm' })}
-        <div class="level-row">
-          <span class="level-pill">Lv.${s.level}</span>
-          <span class="rank-badge ${rank.cls}">${rank.icon} ${rank.label}</span>
-        </div>
-        <div class="skill-count">
-          <i class="fa-solid fa-gift"></i> 보유 스킬 ${s.skill_count}개
-        </div>
+        ${displayNameHtml(s, { size: 'lg' })}
+        <span class="rank-badge rank-badge-lg ${rank.cls}">${rank.icon} ${rank.label}</span>
+        <span class="level-pill level-pill-sm">Lv.${s.level}</span>
       </div>
     `
   }).join('')
@@ -1027,12 +1021,12 @@ async function renderList() {
         </button>
       </div>
 
+      <div class="student-grid">${cards}</div>
+
       <div class="rank-banner">
         <div class="rank-banner-title"><span>🏆</span> 학급 순위</div>
         <ol class="rank-list">${rankRows}</ol>
       </div>
-
-      <div class="student-grid">${cards}</div>
     </div>
   `
 
