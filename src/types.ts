@@ -37,12 +37,18 @@ export interface OwnedSkill {
   uses_left?: number       // 남은 사용 횟수 (N회권)
   uses_total?: number      // 최초 부여 횟수 (표시용)
   uses_seed?: number       // 선택 대기(pending) 시, 선택 후 적용할 unlock_uses 보관
+  from_choice?: boolean    // A/B 선택으로 얻은 스킬인지 (다시 선택 가능)
 }
 
 export interface UsedSkill {
   name: string
   level: number
   used_at: string
+  uid?: string             // 복구용 식별자
+  uses_total?: number      // 복구 시 되돌릴 총 횟수
+  choice_a?: string        // 선택형에서 온 경우 A/B 보관 (복구 후 다시 선택 가능)
+  choice_b?: string
+  from_choice?: boolean
 }
 
 export interface StudentRow {

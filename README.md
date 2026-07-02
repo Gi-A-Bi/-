@@ -68,8 +68,10 @@
 | DELETE | `/api/students/:id` | 학생 삭제 (로그도 함께) |
 | POST | `/api/students/:id/score` | XP 부여 + 자동 레벨업 + 보상 지급 |
 | POST | `/api/students/:id/hp` | HP ±1 |
-| POST | `/api/students/:id/skills/:uid/use` | 보유 스킬 사용 (소모) |
+| POST | `/api/students/:id/skills/:uid/use` | 보유 스킬 사용 (회권은 1회 차감, 상시는 소모 안 함) |
 | POST | `/api/students/:id/choices/:uid/resolve` | A/B 보상 선택 |
+| POST | `/api/students/:id/skills/:key/restore` | 사용한 스킬 복구 (used → owned) |
+| POST | `/api/students/:id/skills/:uid/reselect` | A/B 선택으로 얻은 스킬을 다시 선택(선택 대기로) |
 | GET | `/api/classes/:classId/logs` | 활동 기록 |
 | GET | `/api/classes/:classId/level-table` | 레벨/스킬 표 |
 | PUT | `/api/classes/:classId/level-table/:level/skill` | 스킬 보상 수정(유형·이름·A/B·`unlock_uses`). 유형: 없음/자동해금/A-B선택, `unlock_uses` 0=상시·1~3=회권 |

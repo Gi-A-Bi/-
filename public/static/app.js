@@ -1536,6 +1536,9 @@ async function renderDetail(id) {
     const action = isPerm
       ? `<span class="use-btn perm-btn" title="상시 유지되는 스킬이에요">상시</span>`
       : `<button class="use-btn" data-skill-uid="${sk.uid}" data-skill-name="${escapeHtml(sk.skill_name)}">사용하기</button>`
+    const reselect = sk.can_reselect
+      ? `<button class="reselect-btn" data-reselect-uid="${sk.uid}" title="보상을 다시 선택">🔄 다시 선택</button>`
+      : ''
     return `
     <div class="skill-card">
       <div class="skill-icon">${skillEmoji(sk.skill_name)}</div>
@@ -1543,10 +1546,22 @@ async function renderDetail(id) {
         <div class="skill-name">${escapeHtml(sk.skill_name)}</div>
         <div class="skill-source">Lv.${sk.source_level} 보상 · ${tag}</div>
       </div>
-      ${action}
+      <div class="skill-actions">${reselect}${action}</div>
     </div>
   `
   }).join('')
+
+  // 사용한 스킬 (복구용)
+  const usedSkills = (s.used_list || []).map(u => `
+    <div class="skill-card used">
+      <div class="skill-icon">${skillEmoji(u.name)}</div>
+      <div class="skill-info">
+        <div class="skill-name">${escapeHtml(u.name)}</div>
+        <div class="skill-source">Lv.${u.level} 보상 · <span class="skill-tag used-tag">사용함</span></div>
+      </div>
+      <button class="restore-btn" data-restore-key="${escapeHtml(String(u.key))}">↩ 복구</button>
+    </div>
+  `).join('')
 
   const passiveSkill = s.passive_skill || '없음'
 
@@ -1635,6 +1650,17 @@ async function renderDetail(id) {
           ? `<div class="empty-state">아직 보유한 스킬이 없어요.<br/>레벨을 올리면 스킬이 쌓여요!</div>`
           : `<div class="skill-list">${skills}</div>`}
       </div>
+
+      ${(s.used_list || []).length > 0 ? `
+      <!-- 사용한 스킬 (복구 가능) -->
+      <div class="section-card">
+        <div class="section-title">
+          <span>📜</span> 사용한 스킬
+          <span class="count-pill">${(s.used_list || []).length}</span>
+        </div>
+        <div class="hint-text" style="margin-bottom:8px;">잘못 눌렀다면 <b>복구</b>로 다시 보유 스킬에 되돌릴 수 있어요.</div>
+        <div class="skill-list">${usedSkills}</div>
+      </div>` : ''}
     </div>
   `
 
@@ -1672,13 +1698,13 @@ async function renderDetail(id) {
   document.getElementById('hp-minus').onclick = () => adjustHp(id, -1)
   document.getElementById('hp-plus').onclick = () => adjustHp(id, +1)
 
-  main.querySelectorAll('.use-btn').forEach(btn => {
+  main.querySelectorAll('.use-btn:not(.perm-btn)').forEach(btn => {
     btn.addEventListener('click', () => {
       const skillUid = btn.dataset.skillUid
       const name = btn.dataset.skillName
       showConfirm(
         `${name} 사용`,
-        '이 스킬은 한 번 사용하면 사라집니다. 사용할까요?',
+        '이 스킬을 사용할까요? (회권 스킬은 1회 차감돼요)',
         () => useSkill(id, skillUid, name)
       )
     })
@@ -1691,6 +1717,42 @@ async function renderDetail(id) {
       resolveChoice(id, choiceUid, pick)
     })
   })
+
+  main.querySelectorAll('.restore-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.restoreKey
+      restoreSkill(id, key)
+    })
+  })
+
+  main.querySelectorAll('.reselect-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid = btn.dataset.reselectUid
+      showConfirm('보상 다시 선택', '이 보상을 다시 선택할까요?\n선택 대기 상태로 되돌아가 A/B를 다시 고를 수 있어요.',
+        () => reselectSkill(id, uid))
+    })
+  })
+}
+
+async function restoreSkill(studentId, key) {
+  try {
+    await api(`/api/students/${studentId}/skills/${encodeURIComponent(key)}/restore`, { method: 'POST' })
+    showToast('스킬을 복구했어요', 'success', '↩')
+    Sound.skillGet()
+    await renderDetail(studentId)
+  } catch (e) {
+    showToast(e.message, 'error')
+  }
+}
+
+async function reselectSkill(studentId, uid) {
+  try {
+    await api(`/api/students/${studentId}/skills/${uid}/reselect`, { method: 'POST' })
+    showToast('다시 선택할 수 있어요', 'success', '🔄')
+    await renderDetail(studentId)
+  } catch (e) {
+    showToast(e.message, 'error')
+  }
 }
 
 async function addScore(studentId, name, delta) {
