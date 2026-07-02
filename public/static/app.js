@@ -952,10 +952,10 @@ async function navigate(view, params = {}) {
 function rankStars(rank) {
   return ({ bronze: '★', silver: '★★', gold: '★★★', diamond: '✦✦✦✦' })[rank] || '★'
 }
-// HP 하트 (채운 하트 + 빈 하트)
+// HP 하트 — HP 개수만큼 빨간 하트 (HP가 깎이면 하트 수도 줄어듦)
 function hpHearts(hp, max = 3) {
   const h = Math.max(0, Math.min(max, Number(hp) || 0))
-  return '❤'.repeat(h) + '🤍'.repeat(Math.max(0, max - h))
+  return '❤️'.repeat(h) || '🩶'
 }
 // 학생 → 트레이딩 카드 마크업
 function cardHtml(s) {
@@ -969,14 +969,13 @@ function cardHtml(s) {
   const artStyle = hasImg ? '' : `style="background: radial-gradient(circle at 50% 30%, rgba(255,255,255,.4), transparent 56%), linear-gradient(155deg, ${c}, ${c}aa);"`
   const name = escapeHtml(s.nickname || s.name || '')
   return `
-    <div class="tcard rank-${s.rank} ${pending ? 'is-pending' : ''}" data-id="${s.id}">
-      <div class="tc-art" ${artStyle}>${artInner}<span class="tc-mold"></span></div>
+    <div class="tcard rank-${s.rank}" data-id="${s.id}">
+      <div class="tc-art" ${artStyle}>${artInner}</div>
       <div class="tc-gloss"></div>
       <span class="tc-corner tl"></span><span class="tc-corner tr"></span><span class="tc-corner bl"></span><span class="tc-corner br"></span>
       ${s.rank === 'diamond' ? '<span class="tc-foil"></span><span class="tc-spark a">✦</span><span class="tc-spark b">✧</span>' : ''}
       <div class="tc-hp">${hpHearts(s.hp, s.max_hp || 3)}</div>
       <div class="tc-lv">Lv.${s.level}</div>
-      ${pending ? '<div class="tc-pending">🎁 선택</div>' : ''}
       <div class="tc-info">
         <div class="tc-rarity">${rankStars(s.rank)}</div>
         <div class="tc-name">${name}</div>
@@ -1056,7 +1055,7 @@ async function renderList() {
   document.getElementById('btn-add-student').onclick = showAddStudentModal
   document.getElementById('btn-class-xp').onclick = showClassXpModal
 
-  main.querySelectorAll('.student-card').forEach(card => {
+  main.querySelectorAll('.tcard').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.dataset.id
       navigate('detail', { studentId: id })
