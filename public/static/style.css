@@ -3078,3 +3078,45 @@ button {
   flex-shrink: 0; white-space: nowrap;
 }
 .restore-btn:active { transform: scale(0.95); }
+
+/* =================================================================
+   분할 화면 (넓은 화면: 좌 목록 / 우 상세)
+   ================================================================= */
+.split-view { display: block; }
+.tcard.selected { outline: 3px solid var(--gold); outline-offset: 3px; }
+
+@media (min-width: 900px) {
+  .split-view {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 20px;
+    align-items: start;
+  }
+  .split-left { min-width: 0; }
+  /* 좌측은 폭이 좁아지므로 카드 최소 크기를 살짝 줄임 */
+  .split-left .student-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+
+  .split-right {
+    position: sticky;
+    top: 80px;
+    align-self: start;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-radius: 18px;
+  }
+  .detail-pane .view-container { padding: 0; max-width: none; margin: 0; }
+  .detail-empty {
+    min-height: 340px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-dim);
+    font-weight: 800;
+    line-height: 1.7;
+    border: 2px dashed var(--card-border-dim);
+    border-radius: 18px;
+    padding: 30px;
+  }
+}

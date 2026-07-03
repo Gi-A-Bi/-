@@ -927,7 +927,10 @@ function updateHeader() {
 // ==============================
 async function navigate(view, params = {}) {
   state.view = view
-  if (view === 'detail') state.currentStudentId = params.studentId
+  if (view === 'detail') {
+    state.currentStudentId = params.studentId
+    state.detailPane = 'main-view'   // 전체 화면(모바일) 렌더
+  }
   updateHeader()
   const main = document.getElementById('main-view')
   main.innerHTML = '<div class="view-container hint-text">불러오는 중...</div>'
@@ -1024,14 +1027,13 @@ async function renderList() {
   const ranked = [...students].sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
   const rankRows = ranked.map((s, i) => rankRowHtml(s, i)).join('')
 
-  main.innerHTML = `
-    <div class="view-container list-view">
+  const titleHtml = `
       <div class="view-title">
         <span>🏰</span> ${className}
         <span class="class-meta">${students.length}명</span>
         <button class="btn-add-student" id="btn-add-student">+ 학생</button>
-      </div>
-
+      </div>`
+  const bannerHtml = `
       <div class="class-xp-banner">
         <div class="cxp-main">
           <div class="cxp-label"><span class="cxp-emoji">🏫</span> 학급 전체 경험치</div>
@@ -1041,33 +1043,89 @@ async function renderList() {
         <button class="cxp-adjust-btn" id="btn-class-xp">
           <i class="fa-solid fa-scale-balanced"></i> 조정
         </button>
-      </div>
-
-      <div class="student-grid">${cards}</div>
-
+      </div>`
+  const gridHtml = `<div class="student-grid">${cards}</div>`
+  const rankHtml = `
       <div class="rank-banner">
         <div class="rank-banner-title"><span>🏆</span> 학급 순위</div>
         <ol class="rank-list">${rankRows}</ol>
-      </div>
-    </div>
-  `
+      </div>`
+
+  const wide = isWideLayout()
+  if (wide) {
+    // 넓은 화면: 좌(목록) / 우(선택 학생 상세) 분할
+    main.innerHTML = `
+      <div class="view-container list-view">
+        <div class="split-view">
+          <div class="split-left">
+            ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}
+          </div>
+          <div class="split-right">
+            <div id="detail-pane" class="detail-pane">
+              <div class="detail-empty">👈 학생 카드를 누르면<br/>여기에 캐릭터 시트가 열려요</div>
+            </div>
+          </div>
+        </div>
+      </div>`
+  } else {
+    main.innerHTML = `
+      <div class="view-container list-view">
+        ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}
+      </div>`
+  }
 
   document.getElementById('btn-add-student').onclick = showAddStudentModal
   document.getElementById('btn-class-xp').onclick = showClassXpModal
 
   main.querySelectorAll('.tcard').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = card.dataset.id
-      navigate('detail', { studentId: id })
-    })
+    card.addEventListener('click', () => openStudent(card.dataset.id, card))
+  })
+  main.querySelectorAll('.rank-item').forEach(item => {
+    item.addEventListener('click', () => openStudent(item.dataset.id, null))
   })
 
-  main.querySelectorAll('.rank-item').forEach(item => {
-    item.addEventListener('click', () => {
-      navigate('detail', { studentId: item.dataset.id })
-    })
-  })
+  // 분할 화면에서 직전에 보던 학생이 있으면 다시 열어둠
+  if (wide && state.currentStudentId && students.some(s => s.id === state.currentStudentId)) {
+    openStudent(state.currentStudentId, main.querySelector(`.tcard[data-id="${state.currentStudentId}"]`))
+  }
 }
+
+// 넓은 화면(분할 레이아웃) 여부
+function isWideLayout() {
+  return window.matchMedia('(min-width: 900px)').matches
+}
+
+// 학생 열기 — 넓은 화면은 오른쪽 패널, 좁은 화면은 전체 화면
+function openStudent(id, cardEl) {
+  if (isWideLayout() && document.getElementById('detail-pane')) {
+    state.currentStudentId = id
+    state.detailPane = 'detail-pane'
+    const main = document.getElementById('main-view')
+    main.querySelectorAll('.tcard.selected').forEach(c => c.classList.remove('selected'))
+    const card = cardEl || main.querySelector(`.tcard[data-id="${id}"]`)
+    if (card) card.classList.add('selected')
+    const pane = document.getElementById('detail-pane')
+    pane.innerHTML = '<div class="hint-text" style="padding:24px;">불러오는 중...</div>'
+    renderDetail(id).catch(e => { pane.innerHTML = `<div class="hint-text" style="padding:24px;">오류: ${escapeHtml(e.message)}</div>` })
+  } else {
+    navigate('detail', { studentId: id })
+  }
+}
+
+// 화면 폭이 분할/단일 경계를 넘나들면 목록 화면을 다시 그림
+let _wideNow = null
+let _resizeTimer = null
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer)
+  _resizeTimer = setTimeout(() => {
+    const w = isWideLayout()
+    if (_wideNow === null) { _wideNow = w; return }
+    if (w !== _wideNow) {
+      _wideNow = w
+      if (state.view === 'list' && state.booted) renderList()
+    }
+  }, 220)
+})
 
 // 순위 배너의 한 줄 (i: 0-based 순위 인덱스)
 function rankRowHtml(s, i) {
@@ -1565,7 +1623,7 @@ async function renderDetail(id) {
 
   const passiveSkill = s.passive_skill || '없음'
 
-  const main = document.getElementById('main-view')
+  const main = document.getElementById(state.detailPane || 'main-view') || document.getElementById('main-view')
   const heroHasImg = hasAvatarImage(s)
   const heroBgStyle = heroHasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(s)}, ${avatarColor(s)}cc);`
   const heroAvatarCls = heroHasImg ? 'avatar-photo' : (s.avatar_emoji ? 'avatar-emoji' : '')
