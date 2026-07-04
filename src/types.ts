@@ -21,6 +21,7 @@ export interface ClassRow {
   name: string
   owner_email: string | null
   bonus_xp?: number   // 학급 전체 경험치 보정치 (학생 xp 합계에 더해짐, 학급 단위 보상/차감용)
+  draw_config?: { rewards: number[] }   // 카드팩 뽑기 보상 XP 목록 (교사가 설정에서 수정)
   created_at?: string
 }
 
@@ -72,6 +73,31 @@ export interface StudentRow {
   owned_skills: OwnedSkill[]
   used_skills: UsedSkill[]
   badges?: EarnedBadge[]
+  team?: string | null      // 모둠 이름 (모둠전)
+  coins?: number            // 상점용 코인
+  coupons?: CouponItem[]    // 상점에서 산 쿠폰함
+  created_at?: string
+}
+
+// 상점에서 구매한 쿠폰 (students.coupons JSON 배열의 원소)
+export interface CouponItem {
+  uid: string
+  item_id: string
+  name: string
+  emoji: string
+  price: number
+  bought_at: string
+  used_at?: string | null
+}
+
+// 상점 상품 (shop_items 테이블)
+export interface ShopItemRow {
+  id: string
+  class_id: string
+  name: string
+  emoji: string
+  price: number
+  sort_order: number
   created_at?: string
 }
 
@@ -111,7 +137,7 @@ export interface ActivityLogRow {
   id?: string
   class_id: string
   student_id: string
-  type: 'score' | 'skill_use' | 'level_up' | 'skill_choice' | 'badge'
+  type: 'score' | 'skill_use' | 'level_up' | 'skill_choice' | 'badge' | 'coin' | 'purchase' | 'coupon_use'
   name: string
   score: number
   created_at?: string

@@ -13,6 +13,8 @@ import type {
   UsedSkill,
   BadgeRow,
   EarnedBadge,
+  ShopItemRow,
+  CouponItem,
 } from './types'
 import {
   calcLevel,
@@ -552,6 +554,7 @@ app.get('/api/students/:id', async (c) => {
     'badges',
     `select=*&class_id=eq.${student.class_id}`,
   ).catch(() => [] as BadgeRow[])
+  const earnedIds = new Set((Array.isArray(e.badges) ? e.badges : []).map((eb: EarnedBadge) => eb.badge_id))
   const earnedBadges = (Array.isArray(e.badges) ? e.badges : [])
     .map((eb: EarnedBadge) => {
       const d = badgeDefs.find(b => b.id === eb.badge_id)
@@ -566,7 +569,36 @@ app.get('/api/students/:id', async (c) => {
     })
     .filter(Boolean)
 
-  return c.json({ ...e, skills, pending_choices, used_list: usedList, earned_badges: earnedBadges })
+  // 아직 못 딴 자동 뱃지의 진행도 (레벨/XP는 즉시 계산, 활동 횟수는 로그 집계)
+  const badgeProgress: any[] = []
+  for (const b of badgeDefs) {
+    if (!b.auto_type || earnedIds.has(b.id)) continue
+    let current = 0
+    const target = Number(b.auto_value) || 1
+    if (b.auto_type === 'level') current = e.level
+    else if (b.auto_type === 'xp') current = e.xp
+    else if (b.auto_type === 'activity_count' && b.auto_activity) {
+      const rows = await sb.select(
+        'activity_logs',
+        `select=id&student_id=eq.${student.id}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
+      ).catch(() => [])
+      current = rows.length
+    }
+    badgeProgress.push({
+      badge_id: b.id,
+      name: b.name,
+      emoji: b.emoji,
+      auto_type: b.auto_type,
+      auto_activity: b.auto_activity,
+      current: Math.min(current, target),
+      target,
+    })
+  }
+
+  return c.json({
+    ...e, skills, pending_choices, used_list: usedList,
+    earned_badges: earnedBadges, badge_progress: badgeProgress,
+  })
 })
 
 // =================================================================
@@ -1534,6 +1566,262 @@ app.delete('/api/students/:id/badges/:badgeId', async (c) => {
   const sb = makeSupabase(c.env)
   await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
   return c.json({ success: true, badges: earned })
+})
+
+// =================================================================
+// 카드팩 뽑기 — 보상 XP 목록에서 서버가 무작위 추첨 (학급별 설정 가능)
+// =================================================================
+const MIGRATION_0006_HINT = '데이터베이스 준비가 필요해요. Supabase SQL Editor에서 supabase_0006_draw_team_shop.sql 을 실행해주세요.'
+const DEFAULT_DRAW_REWARDS = [20, 40, 60, 80, 100]
+
+app.put('/api/classes/:classId/draw-config', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ rewards: number[] }>().catch(() => ({} as any))
+  const rewards = (Array.isArray(body.rewards) ? body.rewards : [])
+    .map(v => Math.trunc(Number(v)))
+    .filter(v => Number.isFinite(v) && v >= 1 && v <= 10000)
+  if (!rewards.length) return c.json({ error: '보상 XP를 1개 이상 입력해주세요 (1~10000)' }, 400)
+  if (rewards.length > 30) return c.json({ error: '보상은 최대 30개까지 가능해요' }, 400)
+
+  const sb = makeSupabase(c.env)
+  try {
+    await sb.update('classes', { draw_config: { rewards } }, `id=eq.${classId}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+  return c.json({ success: true, rewards })
+})
+
+app.post('/api/students/:id/draw', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const [cls] = await sb.select<ClassRow>('classes', `select=*&id=eq.${student.class_id}&limit=1`)
+  const rewards = (cls?.draw_config?.rewards && cls.draw_config.rewards.length)
+    ? cls.draw_config.rewards
+    : DEFAULT_DRAW_REWARDS
+  const reward = rewards[Math.floor(Math.random() * rewards.length)]
+
+  const [levels, autoBadges] = await Promise.all([
+    sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
+    loadAutoBadges(sb, student.class_id),
+  ])
+  const r = await applyScoreToStudent(sb, levels, student, '🎁 카드팩 뽑기', reward, autoBadges)
+  await sb.insert('activity_logs', r.logs, false)
+
+  return c.json({
+    success: true,
+    reward,
+    new_xp: r.newXp,
+    new_level: r.newLevel,
+    leveled_up: r.newLevel > r.oldLevel,
+    new_skills: r.newSkills,
+    new_pending_choices: r.newPendingChoices,
+    new_badges: r.newBadges,
+  })
+})
+
+// =================================================================
+// 모둠전 — 학생별 모둠 지정 (모둠 순위는 클라이언트가 학생 목록으로 계산)
+// =================================================================
+app.put('/api/students/:id/team', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+
+  const body = await c.req.json<{ team: string | null }>().catch(() => ({} as any))
+  const team = (body.team || '').trim() || null
+
+  const sb = makeSupabase(c.env)
+  try {
+    await sb.update('students', { team }, `id=eq.${id}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+  return c.json({ success: true, team })
+})
+
+// =================================================================
+// 상점 — 코인 조정 / 상품 CRUD / 구매 / 쿠폰 사용
+// =================================================================
+app.post('/api/students/:id/coins', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const body = await c.req.json<{ delta: number }>().catch(() => ({} as any))
+  const delta = Math.trunc(Number(body.delta || 0))
+  if (!delta) return c.json({ error: '조정할 코인 수를 입력해주세요' }, 400)
+
+  const newCoins = Math.max(0, (Number(student.coins) || 0) + delta)
+  const sb = makeSupabase(c.env)
+  try {
+    await sb.update('students', { coins: newCoins }, `id=eq.${id}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'coin',
+    name: `코인 ${delta > 0 ? '+' : ''}${delta}`,
+    score: 0,
+  }], false)
+  return c.json({ success: true, coins: newCoins })
+})
+
+app.get('/api/classes/:classId/shop', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  try {
+    const items = await sb.select<ShopItemRow>(
+      'shop_items',
+      `select=*&class_id=eq.${classId}&order=sort_order.asc,created_at.asc`,
+    )
+    return c.json(items)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+})
+
+app.post('/api/classes/:classId/shop', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<any>().catch(() => ({}))
+  const name = (body.name || '').trim()
+  if (!name) return c.json({ error: '상품 이름을 입력해주세요' }, 400)
+  const price = Math.trunc(Number(body.price || 1))
+  if (price < 1) return c.json({ error: '가격은 1코인 이상이어야 해요' }, 400)
+
+  const sb = makeSupabase(c.env)
+  try {
+    const inserted = await sb.insert<ShopItemRow>('shop_items', [{
+      class_id: classId,
+      name,
+      emoji: (body.emoji || '').trim() || '🎟️',
+      price,
+      sort_order: Math.trunc(Number(body.sort_order || 0)),
+    }])
+    return c.json({ success: true, item: inserted[0] })
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+})
+
+app.put('/api/classes/:classId/shop/:id', async (c) => {
+  const classId = c.req.param('classId')
+  const id = c.req.param('id')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<any>().catch(() => ({}))
+  const patch: Record<string, any> = {}
+  if (body.name !== undefined) {
+    const name = (body.name || '').trim()
+    if (!name) return c.json({ error: '상품 이름을 입력해주세요' }, 400)
+    patch.name = name
+  }
+  if (body.emoji !== undefined) patch.emoji = (body.emoji || '').trim() || '🎟️'
+  if (body.price !== undefined) {
+    const price = Math.trunc(Number(body.price || 0))
+    if (price < 1) return c.json({ error: '가격은 1코인 이상이어야 해요' }, 400)
+    patch.price = price
+  }
+  if (!Object.keys(patch).length) return c.json({ error: '수정할 내용이 없습니다' }, 400)
+
+  const sb = makeSupabase(c.env)
+  const updated = await sb.update<ShopItemRow>('shop_items', patch, `id=eq.${id}&class_id=eq.${classId}`)
+  if (!updated[0]) return c.json({ error: '상품을 찾을 수 없습니다' }, 404)
+  return c.json({ success: true, item: updated[0] })
+})
+
+app.delete('/api/classes/:classId/shop/:id', async (c) => {
+  const classId = c.req.param('classId')
+  const id = c.req.param('id')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  await sb.delete('shop_items', `id=eq.${id}&class_id=eq.${classId}`)
+  return c.json({ success: true })
+})
+
+// 구매 — 코인 차감 + 쿠폰함에 추가
+app.post('/api/students/:id/purchase/:itemId', async (c) => {
+  const id = c.req.param('id')
+  const itemId = c.req.param('itemId')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const found = await sb.select<ShopItemRow>(
+    'shop_items',
+    `select=*&id=eq.${itemId}&class_id=eq.${student.class_id}&limit=1`,
+  ).catch(() => [] as ShopItemRow[])
+  const item = found[0]
+  if (!item) return c.json({ error: '상품을 찾을 수 없습니다' }, 404)
+
+  const coins = Number(student.coins) || 0
+  if (coins < item.price) {
+    return c.json({ error: `코인이 부족해요 (보유 ${coins} / 필요 ${item.price})` }, 400)
+  }
+
+  const coupons: CouponItem[] = Array.isArray(student.coupons) ? [...student.coupons] : []
+  coupons.push({
+    uid: shortUid(),
+    item_id: item.id,
+    name: item.name,
+    emoji: item.emoji,
+    price: item.price,
+    bought_at: new Date().toISOString(),
+  })
+  await sb.update('students', { coins: coins - item.price, coupons }, `id=eq.${id}`, false)
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'purchase',
+    name: `구매: ${item.emoji} ${item.name} (${item.price}코인)`,
+    score: 0,
+  }], false)
+  return c.json({ success: true, coins: coins - item.price, coupons })
+})
+
+// 쿠폰 사용 (사용 처리만, 기록 유지)
+app.post('/api/students/:id/coupons/:uid/use', async (c) => {
+  const id = c.req.param('id')
+  const uid = c.req.param('uid')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const coupons: CouponItem[] = Array.isArray(student.coupons) ? [...student.coupons] : []
+  const target = coupons.find(cp => cp.uid === uid && !cp.used_at)
+  if (!target) return c.json({ error: '사용할 수 있는 쿠폰이 없습니다' }, 404)
+  target.used_at = new Date().toISOString()
+
+  const sb = makeSupabase(c.env)
+  await sb.update('students', { coupons }, `id=eq.${id}`, false)
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'coupon_use',
+    name: `쿠폰 사용: ${target.emoji} ${target.name}`,
+    score: 0,
+  }], false)
+  return c.json({ success: true, coupons })
 })
 
 export default app
