@@ -1,5 +1,9 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 
+// 빌드 시 vite define 으로 주입되는 배포 버전 (vite.config.ts 참고)
+declare const __BUILD_ID__: string
+const BUILD_ID = typeof __BUILD_ID__ === 'undefined' ? 'dev' : __BUILD_ID__
+
 export const renderer = jsxRenderer(({ children }) => {
   return (
     <html lang="ko">
@@ -16,11 +20,11 @@ export const renderer = jsxRenderer(({ children }) => {
         <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Nanum+Myeongjo:wght@700;800&display=swap" rel="stylesheet" />
         {/* 엑셀 파일 파싱용 (학생 일괄 등록) - 약 450KB, 사용 시점에만 로드되도록 defer */}
         <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-        <link href="/static/style.css" rel="stylesheet" />
+        <link href={`/static/style.css?v=${BUILD_ID}`} rel="stylesheet" />
       </head>
       <body>
         {children}
-        <script src="/static/app.js"></script>
+        <script src={`/static/app.js?v=${BUILD_ID}`}></script>
       </body>
     </html>
   )

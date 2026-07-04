@@ -3120,3 +3120,144 @@ button {
     padding: 30px;
   }
 }
+
+/* ==============================
+   여러 명 선택 → XP 일괄 부여
+   ============================== */
+.btn-multi {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: rgba(192, 132, 252, 0.14);
+  border: 1.5px solid rgba(192, 132, 252, 0.5);
+  border-radius: 8px;
+  color: #ddd6fe;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.btn-multi:hover { transform: translateY(-1px); }
+.btn-multi.active {
+  background: linear-gradient(135deg, var(--accent-2) 0%, #7c3aed 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(192, 132, 252, 0.35);
+}
+/* btn-multi가 auto 마진을 가져가므로 + 학생 버튼은 고정 간격만 */
+.view-title .btn-multi + .btn-add-student { margin-left: 8px; }
+
+/* 선택된 카드 — 초록 체크 오버레이 */
+.tcard .tc-check { display: none; }
+.tcard.msel {
+  outline: 3px solid #4ade80;
+  outline-offset: 2px;
+}
+.tcard.msel .tc-check {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 42px;
+  font-weight: 900;
+  color: #fff;
+  background: rgba(34, 197, 94, 0.30);
+  border-radius: inherit;
+  z-index: 6;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+/* 하단 고정 액션 바 */
+.msel-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(14, 10, 35, 0.94);
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  z-index: 900;
+  backdrop-filter: blur(6px);
+  max-width: calc(100vw - 24px);
+}
+.msel-count {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-light);
+  white-space: nowrap;
+}
+.msel-count strong { color: #4ade80; font-size: 16px; }
+.msel-give {
+  padding: 9px 18px;
+  background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+  border: none;
+  border-radius: 999px;
+  color: #1a0f00;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 3px 12px rgba(251, 191, 36, 0.35);
+}
+.msel-give:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+.msel-exit {
+  padding: 9px 14px;
+  background: transparent;
+  border: 1.5px solid var(--card-border-dim);
+  border-radius: 999px;
+  color: var(--text-light);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* 일괄 부여 모달 */
+.msel-names {
+  font-size: 12.5px;
+  color: var(--text-light);
+  margin: -4px 0 12px;
+  line-height: 1.5;
+}
+.msel-grid {
+  max-height: 42vh;
+  overflow-y: auto;
+}
+.msel-custom {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.msel-custom input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 2px solid var(--card-border-dim);
+  border-radius: 10px;
+  background: var(--bg-base);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+.msel-custom .btn-confirm {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+}

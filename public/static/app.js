@@ -8,6 +8,8 @@ const state = {
   bonusXp: 0,               // 학급 전체 경험치 보정치 (학생 xp 합계 + bonusXp = 학급 전체 경험치)
   view: 'list',             // list | detail | logs | settings
   currentStudentId: null,
+  multiSelect: false,       // 여러 명 선택 모드 (한 번에 XP 주기)
+  selectedIds: new Set(),   // 선택된 학생 id 목록
   students: [],
   levelTable: [],
   activities: [],
@@ -156,6 +158,8 @@ function clearAuthSession() {
   state.students = []
   state.activities = []
   state.levelTable = []
+  state.multiSelect = false
+  state.selectedIds = new Set()
   localStorage.removeItem(AUTH_STORAGE_KEY)
 }
 
@@ -979,6 +983,7 @@ function cardHtml(s) {
       ${s.rank === 'diamond' ? '<span class="tc-foil"></span><span class="tc-spark a">✦</span><span class="tc-spark b">✧</span>' : ''}
       <div class="tc-hp">${hpHearts(s.hp, s.max_hp || 3)}</div>
       <div class="tc-lv">Lv.${s.level}</div>
+      <span class="tc-check">✓</span>
       <div class="tc-info">
         <div class="tc-rarity">${rankStars(s.rank)}</div>
         <div class="tc-name">${name}</div>
@@ -1031,6 +1036,9 @@ async function renderList() {
       <div class="view-title">
         <span>🏰</span> ${className}
         <span class="class-meta">${students.length}명</span>
+        <button class="btn-multi ${state.multiSelect ? 'active' : ''}" id="btn-multi">
+          ${state.multiSelect ? '✕ 선택 끝내기' : '☑️ 여러 명 XP'}
+        </button>
         <button class="btn-add-student" id="btn-add-student">+ 학생</button>
       </div>`
   const bannerHtml = `
@@ -1050,6 +1058,12 @@ async function renderList() {
         <div class="rank-banner-title"><span>🏆</span> 학급 순위</div>
         <ol class="rank-list">${rankRows}</ol>
       </div>`
+  const mselBarHtml = state.multiSelect ? `
+      <div class="msel-bar" id="msel-bar">
+        <div class="msel-count">✅ <strong id="msel-count-num">0</strong>명 선택</div>
+        <button class="msel-give" id="msel-give">⚡ XP 주기</button>
+        <button class="msel-exit" id="msel-exit">완료</button>
+      </div>` : ''
 
   const wide = isWideLayout()
   if (wide) {
@@ -1066,23 +1080,43 @@ async function renderList() {
             </div>
           </div>
         </div>
+        ${mselBarHtml}
       </div>`
   } else {
     main.innerHTML = `
       <div class="view-container list-view">
-        ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}
+        ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}${mselBarHtml}
       </div>`
   }
 
   document.getElementById('btn-add-student').onclick = showAddStudentModal
   document.getElementById('btn-class-xp').onclick = showClassXpModal
+  document.getElementById('btn-multi').onclick = toggleMultiSelect
 
   main.querySelectorAll('.tcard').forEach(card => {
-    card.addEventListener('click', () => openStudent(card.dataset.id, card))
+    card.addEventListener('click', () => {
+      if (state.multiSelect) toggleCardSelect(card.dataset.id)
+      else openStudent(card.dataset.id, card)
+    })
   })
   main.querySelectorAll('.rank-item').forEach(item => {
-    item.addEventListener('click', () => openStudent(item.dataset.id, null))
+    item.addEventListener('click', () => {
+      if (state.multiSelect) toggleCardSelect(item.dataset.id)
+      else openStudent(item.dataset.id, null)
+    })
   })
+
+  if (state.multiSelect) {
+    document.getElementById('msel-give').onclick = showMultiXpModal
+    document.getElementById('msel-exit').onclick = toggleMultiSelect
+    // 다시 그려도 기존 선택 유지 (삭제된 학생은 선택에서 제거)
+    const validIds = new Set(students.map(s => s.id))
+    state.selectedIds.forEach(id => { if (!validIds.has(id)) state.selectedIds.delete(id) })
+    state.selectedIds.forEach(id => {
+      main.querySelector(`.tcard[data-id="${id}"]`)?.classList.add('msel')
+    })
+    updateMselBar()
+  }
 
   // 분할 화면에서 직전에 보던 학생이 있으면 다시 열어둠
   if (wide && state.currentStudentId && students.some(s => s.id === state.currentStudentId)) {
@@ -1219,6 +1253,118 @@ async function adjustClassXp(delta) {
     await renderList()
   } catch (e) {
     showToast('조정 실패: ' + e.message, 'error')
+  }
+}
+
+// ==============================
+// 여러 명 선택 → XP 일괄 부여
+// ==============================
+function toggleMultiSelect() {
+  state.multiSelect = !state.multiSelect
+  if (!state.multiSelect) state.selectedIds.clear()
+  renderList()
+}
+
+function toggleCardSelect(id) {
+  const main = document.getElementById('main-view')
+  const card = main.querySelector(`.tcard[data-id="${id}"]`)
+  if (state.selectedIds.has(id)) {
+    state.selectedIds.delete(id)
+    card?.classList.remove('msel')
+  } else {
+    state.selectedIds.add(id)
+    card?.classList.add('msel')
+  }
+  updateMselBar()
+}
+
+function updateMselBar() {
+  const numEl = document.getElementById('msel-count-num')
+  if (numEl) numEl.textContent = state.selectedIds.size
+  const giveBtn = document.getElementById('msel-give')
+  if (giveBtn) giveBtn.disabled = state.selectedIds.size === 0
+}
+
+async function showMultiXpModal() {
+  const n = state.selectedIds.size
+  if (!n) { showToast('학생 카드를 먼저 눌러 선택해주세요', 'warning'); return }
+
+  let activities = state.activities
+  if (!activities.length) {
+    activities = await api(`/api/classes/${state.classId}/activities`)
+    state.activities = activities
+  }
+
+  const names = state.students
+    .filter(s => state.selectedIds.has(s.id))
+    .map(s => s.nickname || s.name || '')
+  const nameLine = names.slice(0, 6).map(escapeHtml).join(', ')
+    + (names.length > 6 ? ` 외 ${names.length - 6}명` : '')
+
+  const btns = activities.filter(a => !a.is_custom_input).map(a => {
+    const emoji = activityEmoji(a)
+    const type = a.score_delta >= 0 ? 'positive' : 'negative'
+    return `
+      <button class="score-btn ${type}" data-name="${escapeHtml(a.name)}" data-delta="${a.score_delta}">
+        <div class="emoji">${emoji}</div>
+        <div class="label">${escapeHtml(a.name)}</div>
+        <div class="delta ${a.score_delta >= 0 ? 'delta-pos' : 'delta-neg'}">${a.score_delta >= 0 ? '+' : ''}${a.score_delta} XP</div>
+      </button>
+    `
+  }).join('')
+
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal modal-wide">
+        <div class="modal-title">⚡ ${n}명에게 한 번에 XP 주기</div>
+        <div class="msel-names">${nameLine}</div>
+        <div class="score-grid msel-grid">${btns || '<div class="hint-text">활동이 없어요. 설정에서 활동을 먼저 추가해주세요.</div>'}</div>
+        <div class="msel-custom">
+          <input type="text" id="msel-cname" placeholder="활동 이름 (예: 발표)" />
+          <input type="number" id="msel-cdelta" placeholder="점수 (음수 가능)" />
+          <button class="btn-confirm" id="msel-capply">주기</button>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+        </div>
+      </div>
+    </div>
+  `
+  document.getElementById('modal-cancel').onclick = () => { container.innerHTML = '' }
+  container.querySelectorAll('.score-btn').forEach(btn => {
+    btn.onclick = () => {
+      container.innerHTML = ''
+      applyMultiScore(btn.dataset.name, Number(btn.dataset.delta))
+    }
+  })
+  document.getElementById('msel-capply').onclick = () => {
+    const name = document.getElementById('msel-cname').value.trim() || '점수'
+    const delta = Math.trunc(Number(document.getElementById('msel-cdelta').value) || 0)
+    if (!delta) { showToast('점수를 입력해주세요 (0은 안 돼요)', 'warning'); return }
+    container.innerHTML = ''
+    applyMultiScore(name, delta)
+  }
+}
+
+async function applyMultiScore(name, delta) {
+  try {
+    const res = await api(`/api/classes/${state.classId}/score-batch`, {
+      method: 'POST',
+      body: JSON.stringify({
+        student_ids: [...state.selectedIds],
+        activity_name: name,
+        score_delta: delta,
+      }),
+    })
+    delta >= 0 ? Sound.scoreUp() : Sound.scoreDown()
+    const levelUps = (res.results || []).filter(r => r.leveled_up).length
+    let msg = `${res.count}명에게 ${name} ${delta >= 0 ? '+' : ''}${delta} XP`
+    if (levelUps) msg += ` · 🎉 ${levelUps}명 레벨업!`
+    showToast(msg, delta >= 0 ? 'success' : 'warning', activityEmoji(name))
+    await renderList()
+  } catch (e) {
+    showToast('일괄 부여 실패: ' + e.message, 'error')
   }
 }
 
