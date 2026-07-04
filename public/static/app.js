@@ -16,6 +16,7 @@ const state = {
   badges: [],               // 뱃지 정의 캐시 (설정에서 수정 시 비움)
   shopItems: [],            // 상점 상품 캐시 (설정에서 수정 시 비움)
   drawRewards: [20, 40, 60, 80, 100],   // 카드팩 뽑기 보상 XP (학급 설정)
+  coinRate: 0,              // XP 몇 점당 코인 1개 자동 지급 (0 = 끄기)
   settingsTab: 'activities',
   booted: false,
 
@@ -281,6 +282,7 @@ async function bootstrap() {
       if (data.my_class.draw_config?.rewards?.length) {
         state.drawRewards = data.my_class.draw_config.rewards
       }
+      state.coinRate = Math.max(0, Math.trunc(Number(data.my_class.draw_config?.coin_rate || 0)))
       state.booted = true
       return { ok: true, hasClass: true }
     }
@@ -1419,9 +1421,11 @@ async function applyMultiScore(name, delta) {
     delta >= 0 ? Sound.scoreUp() : Sound.scoreDown()
     const levelUps = (res.results || []).filter(r => r.leveled_up).length
     const badgeGets = (res.results || []).reduce((n, r) => n + (r.new_badges?.length || 0), 0)
+    const coinGets = (res.results || []).reduce((n, r) => n + (r.earned_coins || 0), 0)
     let msg = `${res.count}명에게 ${name} ${delta >= 0 ? '+' : ''}${delta} XP`
     if (levelUps) msg += ` · 🎉 ${levelUps}명 레벨업!`
     if (badgeGets) msg += ` · 🏅 뱃지 ${badgeGets}개 획득!`
+    if (coinGets) msg += ` · 🪙 코인 ${coinGets}개 적립!`
     showToast(msg, delta >= 0 ? 'success' : 'warning', activityEmoji(name))
     await renderList()
   } catch (e) {
@@ -2112,6 +2116,12 @@ async function addScore(studentId, name, delta) {
       })
     }
 
+    if (res.earned_coins > 0) {
+      setTimeout(() => {
+        showToast(`코인 +${res.earned_coins} 적립!`, 'success', '🪙')
+      }, 500)
+    }
+
     await renderDetail(studentId)
   } catch (e) {
     showToast(e.message, 'error')
@@ -2561,6 +2571,22 @@ async function renderShopSettings() {
     </div>
 
     <div class="section-card">
+      <div class="section-title"><span>🪙</span> 코인 자동 적립</div>
+      <div class="hint-text" style="margin-bottom:8px;">
+        누적 XP가 기준선을 넘을 때마다 <b>코인 1개</b>가 자동으로 들어가요.
+        예: <b>10</b>으로 설정하면 XP 10, 20, 30…을 넘을 때마다 1코인.
+        <b>0</b>을 넣으면 자동 적립을 끄고 수동(−/＋)으로만 줍니다.
+        XP를 깎아도 이미 받은 코인은 뺏지 않아요.
+      </div>
+      <div class="draw-config-row">
+        <span class="coin-rate-label">XP</span>
+        <input id="coin-rate" class="account-input" type="number" min="0" style="width:110px;" value="${state.coinRate}" placeholder="예: 10" />
+        <span class="coin-rate-label">점당 1코인</span>
+        <button class="account-btn" id="coin-rate-save" style="flex:0 0 auto; margin-left:auto;">저장</button>
+      </div>
+    </div>
+
+    <div class="section-card">
       <div class="section-title"><span>🛍️</span> 상점 상품</div>
       <div class="hint-text" style="margin-bottom:8px;">
         학생은 <b>🪙 코인</b>으로 상품을 사서 쿠폰함에 보관했다가 사용해요.
@@ -2570,6 +2596,21 @@ async function renderShopSettings() {
       <button class="btn-add-level" id="add-shop-item">＋ 새 상품 추가</button>
     </div>
   `
+
+  document.getElementById('coin-rate-save').onclick = async () => {
+    const rate = Math.trunc(Number(document.getElementById('coin-rate').value) || 0)
+    if (rate < 0) { showToast('0 이상을 입력해주세요', 'warning'); return }
+    try {
+      await api(`/api/classes/${state.classId}/draw-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ coin_rate: rate }),
+      })
+      state.coinRate = rate
+      showToast(rate > 0 ? `XP ${rate}점당 1코인 자동 적립!` : '코인 자동 적립을 껐어요', 'success', '🪙')
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
 
   document.getElementById('draw-save').onclick = async () => {
     const raw = document.getElementById('draw-rewards').value
@@ -2760,6 +2801,9 @@ function showDrawModal(s) {
             res.new_badges.forEach((b, i) => {
               setTimeout(() => showToast(`뱃지 획득! ${b.name}`, 'level-up', b.emoji || '🏅'), 800 + i * 400)
             })
+          }
+          if (res.earned_coins > 0) {
+            setTimeout(() => showToast(`코인 +${res.earned_coins} 적립!`, 'success', '🪙'), 600)
           }
         }, 700)
         setTimeout(async () => {

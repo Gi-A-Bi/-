@@ -3874,3 +3874,12 @@ button {
   cursor: pointer;
   font-size: 14px;
 }
+
+/* --- 코인 자동 적립 설정 --- */
+.coin-rate-label {
+  align-self: center;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-light);
+  white-space: nowrap;
+}
