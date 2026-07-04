@@ -11,6 +11,8 @@ import type {
   ClassRow,
   OwnedSkill,
   UsedSkill,
+  BadgeRow,
+  EarnedBadge,
 } from './types'
 import {
   calcLevel,
@@ -541,7 +543,26 @@ app.get('/api/students/:id', async (c) => {
       choice_b: s.choice_b!,
     }))
 
-  return c.json({ ...e, skills, pending_choices, used_list: usedList })
+  // 획득 뱃지 — 정의(이름/이모지)와 합쳐서 내려줌. 삭제된 뱃지는 표시에서 제외.
+  const badgeDefs = await sb.select<BadgeRow>(
+    'badges',
+    `select=*&class_id=eq.${student.class_id}`,
+  ).catch(() => [] as BadgeRow[])
+  const earnedBadges = (Array.isArray(e.badges) ? e.badges : [])
+    .map((eb: EarnedBadge) => {
+      const d = badgeDefs.find(b => b.id === eb.badge_id)
+      return d ? {
+        badge_id: eb.badge_id,
+        name: d.name,
+        emoji: d.emoji,
+        description: d.description,
+        auto: !!eb.auto,
+        awarded_at: eb.awarded_at,
+      } : null
+    })
+    .filter(Boolean)
+
+  return c.json({ ...e, skills, pending_choices, used_list: usedList, earned_badges: earnedBadges })
 })
 
 // =================================================================
@@ -590,7 +611,7 @@ app.put('/api/students/:id/profile', async (c) => {
 // =================================================================
 // 점수 부여
 // =================================================================
-// 한 학생에게 점수를 적용 (XP 갱신 + 레벨업 시 스킬 해금).
+// 한 학생에게 점수를 적용 (XP 갱신 + 레벨업 시 스킬 해금 + 자동 뱃지 판정).
 // 로그는 저장하지 않고 반환만 함 — 호출자가 모아서 한 번에 insert.
 async function applyScoreToStudent(
   sb: any,
@@ -598,6 +619,7 @@ async function applyScoreToStudent(
   student: StudentRow,
   activityName: string,
   delta: number,
+  autoBadges: BadgeRow[] = [],
 ) {
   const oldLevel = calcLevel(student.xp, levels).level
   const newXp = Math.max(0, student.xp + delta)
@@ -657,12 +679,41 @@ async function applyScoreToStudent(
     }
   }
 
-  await sb.update(
-    'students',
-    { xp: newXp, owned_skills: ownedNow },
-    `id=eq.${student.id}`,
-    false,
-  )
+  // === 자동 뱃지 판정 (레벨 도달 / 누적 XP / 활동 횟수) ===
+  const earnedList: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
+  const newBadges: { badge_id: string; name: string; emoji: string }[] = []
+  const badgeLogs: ActivityLogRow[] = []
+  for (const b of autoBadges) {
+    if (earnedList.some(e => e.badge_id === b.id)) continue
+    let ok = false
+    if (b.auto_type === 'level') {
+      ok = newLevel >= (b.auto_value || 0)
+    } else if (b.auto_type === 'xp') {
+      ok = newXp >= (b.auto_value || 0)
+    } else if (b.auto_type === 'activity_count' && b.auto_activity && b.auto_activity === activityName) {
+      // 이번 활동까지 포함해 해당 활동을 몇 번 했는지 (로그는 아직 저장 전이라 +1)
+      const rows = await sb.select(
+        'activity_logs',
+        `select=id&student_id=eq.${student.id}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
+      )
+      ok = rows.length + 1 >= (b.auto_value || 1)
+    }
+    if (ok) {
+      earnedList.push({ badge_id: b.id, awarded_at: new Date().toISOString(), auto: true })
+      newBadges.push({ badge_id: b.id, name: b.name, emoji: b.emoji })
+      badgeLogs.push({
+        class_id: student.class_id,
+        student_id: student.id,
+        type: 'badge',
+        name: `뱃지 획득: ${b.emoji} ${b.name}`,
+        score: 0,
+      })
+    }
+  }
+
+  const patch: Record<string, any> = { xp: newXp, owned_skills: ownedNow }
+  if (newBadges.length) patch.badges = earnedList
+  await sb.update('students', patch, `id=eq.${student.id}`, false)
 
   const logs: ActivityLogRow[] = [
     {
@@ -673,8 +724,9 @@ async function applyScoreToStudent(
       score: delta,
     },
     ...levelUpLogs,
+    ...badgeLogs,
   ]
-  return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, logs }
+  return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, newBadges, logs }
 }
 
 app.post('/api/students/:id/score', async (c) => {
@@ -685,9 +737,12 @@ app.post('/api/students/:id/score', async (c) => {
 
   const body = await c.req.json<{ activity_name: string; score_delta: number }>()
   const sb = makeSupabase(c.env)
-  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+  const [levels, autoBadges] = await Promise.all([
+    sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
+    loadAutoBadges(sb, student.class_id),
+  ])
 
-  const r = await applyScoreToStudent(sb, levels, student, body.activity_name, Number(body.score_delta || 0))
+  const r = await applyScoreToStudent(sb, levels, student, body.activity_name, Number(body.score_delta || 0), autoBadges)
   await sb.insert('activity_logs', r.logs, false)
 
   return c.json({
@@ -698,6 +753,7 @@ app.post('/api/students/:id/score', async (c) => {
     leveled_up: r.newLevel > r.oldLevel,
     new_skills: r.newSkills,
     new_pending_choices: r.newPendingChoices,
+    new_badges: r.newBadges,
   })
 })
 
@@ -722,12 +778,15 @@ app.post('/api/classes/:classId/score-batch', async (c) => {
   )
   if (!students.length) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
 
-  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+  const [levels, autoBadges] = await Promise.all([
+    sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
+    loadAutoBadges(sb, classId),
+  ])
 
   const allLogs: ActivityLogRow[] = []
   const results: any[] = []
   for (const st of students) {
-    const r = await applyScoreToStudent(sb, levels, st, body.activity_name, delta)
+    const r = await applyScoreToStudent(sb, levels, st, body.activity_name, delta, autoBadges)
     allLogs.push(...r.logs)
     results.push({
       id: st.id,
@@ -736,6 +795,7 @@ app.post('/api/classes/:classId/score-batch', async (c) => {
       leveled_up: r.newLevel > r.oldLevel,
       new_skills: r.newSkills,
       new_pending_choices: r.newPendingChoices,
+      new_badges: r.newBadges,
     })
   }
   await sb.insert('activity_logs', allLogs, false)
@@ -1314,6 +1374,162 @@ app.delete('/api/activities/:id', async (c) => {
   const sb = makeSupabase(c.env)
   await sb.delete('activities', `id=eq.${id}`)
   return c.json({ success: true })
+})
+
+// =================================================================
+// 뱃지 — 정의(CRUD)는 교사가 설정에서, 수여는 수동 또는 자동(점수 부여 시 판정)
+// =================================================================
+const BADGE_AUTO_TYPES = ['level', 'xp', 'activity_count']
+const BADGE_TABLE_HINT = '뱃지 테이블이 아직 없어요. Supabase SQL Editor에서 supabase_0005_badges.sql 을 실행해주세요.'
+
+// 자동 조건이 있는 뱃지만 로드 (테이블이 아직 없으면 빈 배열 — 점수 주기가 막히면 안 됨)
+async function loadAutoBadges(sb: any, classId: string): Promise<BadgeRow[]> {
+  try {
+    return await sb.select('badges', `select=*&class_id=eq.${classId}&auto_type=not.is.null`)
+  } catch {
+    return []
+  }
+}
+
+// body의 자동 조건 필드를 검증/정규화. 잘못된 값이면 에러 문자열 반환.
+function normalizeBadgeAuto(body: any): { auto_type: string | null; auto_value: number | null; auto_activity: string | null } | string {
+  const type = body.auto_type || null
+  if (!type) return { auto_type: null, auto_value: null, auto_activity: null }
+  if (!BADGE_AUTO_TYPES.includes(type)) return '알 수 없는 자동 조건 유형입니다'
+  const value = Math.trunc(Number(body.auto_value || 0))
+  if (value < 1) return '자동 조건 값은 1 이상이어야 합니다'
+  const activity = (body.auto_activity || '').trim() || null
+  if (type === 'activity_count' && !activity) return '횟수를 셀 활동을 골라주세요'
+  return { auto_type: type, auto_value: value, auto_activity: type === 'activity_count' ? activity : null }
+}
+
+app.get('/api/classes/:classId/badges', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  try {
+    const badges = await sb.select<BadgeRow>(
+      'badges',
+      `select=*&class_id=eq.${classId}&order=sort_order.asc,created_at.asc`,
+    )
+    return c.json(badges)
+  } catch {
+    return c.json({ error: BADGE_TABLE_HINT, code: 'no_badge_table' }, 500)
+  }
+})
+
+app.post('/api/classes/:classId/badges', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<any>().catch(() => ({}))
+  const name = (body.name || '').trim()
+  if (!name) return c.json({ error: '뱃지 이름을 입력해주세요' }, 400)
+  const auto = normalizeBadgeAuto(body)
+  if (typeof auto === 'string') return c.json({ error: auto }, 400)
+
+  const sb = makeSupabase(c.env)
+  try {
+    const inserted = await sb.insert<BadgeRow>('badges', [{
+      class_id: classId,
+      name,
+      emoji: (body.emoji || '').trim() || '🏅',
+      description: (body.description || '').trim() || null,
+      ...auto,
+      sort_order: Math.trunc(Number(body.sort_order || 0)),
+    }])
+    return c.json({ success: true, badge: inserted[0] })
+  } catch {
+    return c.json({ error: BADGE_TABLE_HINT, code: 'no_badge_table' }, 500)
+  }
+})
+
+app.put('/api/classes/:classId/badges/:id', async (c) => {
+  const classId = c.req.param('classId')
+  const id = c.req.param('id')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<any>().catch(() => ({}))
+  const patch: Record<string, any> = {}
+  if (body.name !== undefined) {
+    const name = (body.name || '').trim()
+    if (!name) return c.json({ error: '뱃지 이름을 입력해주세요' }, 400)
+    patch.name = name
+  }
+  if (body.emoji !== undefined) patch.emoji = (body.emoji || '').trim() || '🏅'
+  if (body.description !== undefined) patch.description = (body.description || '').trim() || null
+  if (body.auto_type !== undefined) {
+    const auto = normalizeBadgeAuto(body)
+    if (typeof auto === 'string') return c.json({ error: auto }, 400)
+    Object.assign(patch, auto)
+  }
+  if (!Object.keys(patch).length) return c.json({ error: '수정할 내용이 없습니다' }, 400)
+
+  const sb = makeSupabase(c.env)
+  const updated = await sb.update<BadgeRow>('badges', patch, `id=eq.${id}&class_id=eq.${classId}`)
+  if (!updated[0]) return c.json({ error: '뱃지를 찾을 수 없습니다' }, 404)
+  return c.json({ success: true, badge: updated[0] })
+})
+
+app.delete('/api/classes/:classId/badges/:id', async (c) => {
+  const classId = c.req.param('classId')
+  const id = c.req.param('id')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  await sb.delete('badges', `id=eq.${id}&class_id=eq.${classId}`)
+  return c.json({ success: true })
+})
+
+// 수동 수여 (이미 갖고 있으면 그대로 성공 처리)
+app.post('/api/students/:id/badges/:badgeId', async (c) => {
+  const id = c.req.param('id')
+  const badgeId = c.req.param('badgeId')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const found = await sb.select<BadgeRow>(
+    'badges',
+    `select=*&id=eq.${badgeId}&class_id=eq.${student.class_id}&limit=1`,
+  ).catch(() => [] as BadgeRow[])
+  const badge = found[0]
+  if (!badge) return c.json({ error: '뱃지를 찾을 수 없습니다' }, 404)
+
+  const earned: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
+  if (!earned.some(e => e.badge_id === badgeId)) {
+    earned.push({ badge_id: badgeId, awarded_at: new Date().toISOString(), auto: false })
+    await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
+    await sb.insert('activity_logs', [{
+      class_id: student.class_id,
+      student_id: student.id,
+      type: 'badge',
+      name: `뱃지 획득: ${badge.emoji} ${badge.name}`,
+      score: 0,
+    }], false)
+  }
+  return c.json({ success: true, badges: earned })
+})
+
+// 수여 취소 (잘못 준 경우) — 자동 뱃지는 조건이 계속 충족되면 다음 점수 부여 때 다시 붙음
+app.delete('/api/students/:id/badges/:badgeId', async (c) => {
+  const id = c.req.param('id')
+  const badgeId = c.req.param('badgeId')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const earned: EarnedBadge[] = (Array.isArray(student.badges) ? student.badges : [])
+    .filter(e => e.badge_id !== badgeId)
+  const sb = makeSupabase(c.env)
+  await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
+  return c.json({ success: true, badges: earned })
 })
 
 export default app

@@ -51,6 +51,13 @@ export interface UsedSkill {
   from_choice?: boolean
 }
 
+// 학생이 획득한 뱃지 (students.badges JSON 배열의 원소)
+export interface EarnedBadge {
+  badge_id: string
+  awarded_at: string       // ISO timestamp
+  auto?: boolean           // 자동 조건으로 부여됐는지 (false/없음 = 교사가 직접 수여)
+}
+
 export interface StudentRow {
   id: string
   class_id: string
@@ -64,6 +71,21 @@ export interface StudentRow {
   hp: number
   owned_skills: OwnedSkill[]
   used_skills: UsedSkill[]
+  badges?: EarnedBadge[]
+  created_at?: string
+}
+
+// 뱃지 정의 (badges 테이블) — 자동 조건은 정해진 3가지 유형 중 선택
+export interface BadgeRow {
+  id: string
+  class_id: string
+  name: string
+  emoji: string
+  description: string | null
+  auto_type: 'level' | 'xp' | 'activity_count' | null   // NULL=수동
+  auto_value: number | null
+  auto_activity: string | null   // activity_count일 때 대상 활동 이름
+  sort_order: number
   created_at?: string
 }
 
@@ -89,7 +111,7 @@ export interface ActivityLogRow {
   id?: string
   class_id: string
   student_id: string
-  type: 'score' | 'skill_use' | 'level_up' | 'skill_choice'
+  type: 'score' | 'skill_use' | 'level_up' | 'skill_choice' | 'badge'
   name: string
   score: number
   created_at?: string

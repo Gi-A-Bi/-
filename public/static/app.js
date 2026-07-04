@@ -13,6 +13,7 @@ const state = {
   students: [],
   levelTable: [],
   activities: [],
+  badges: [],               // 뱃지 정의 캐시 (설정에서 수정 시 비움)
   settingsTab: 'activities',
   booted: false,
 
@@ -158,6 +159,7 @@ function clearAuthSession() {
   state.students = []
   state.activities = []
   state.levelTable = []
+  state.badges = []
   state.multiSelect = false
   state.selectedIds = new Set()
   localStorage.removeItem(AUTH_STORAGE_KEY)
@@ -200,6 +202,7 @@ function translateAuthError(msg) {
   if (/Invalid login credentials/i.test(m)) return '이메일 또는 비밀번호가 올바르지 않습니다'
   if (/User already registered/i.test(m)) return '이미 가입된 이메일입니다'
   if (/Password should be at least/i.test(m)) return '비밀번호는 최소 6자 이상이어야 합니다'
+  if (/New password should be different/i.test(m)) return '지금 쓰는 비밀번호와 다른 비밀번호를 입력해주세요'
   if (/email.*invalid/i.test(m)) return '올바른 이메일 형식이 아닙니다'
   if (/rate limit/i.test(m)) return '잠시 후 다시 시도해주세요 (요청이 너무 많아요)'
   return m
@@ -1359,8 +1362,10 @@ async function applyMultiScore(name, delta) {
     })
     delta >= 0 ? Sound.scoreUp() : Sound.scoreDown()
     const levelUps = (res.results || []).filter(r => r.leveled_up).length
+    const badgeGets = (res.results || []).reduce((n, r) => n + (r.new_badges?.length || 0), 0)
     let msg = `${res.count}명에게 ${name} ${delta >= 0 ? '+' : ''}${delta} XP`
     if (levelUps) msg += ` · 🎉 ${levelUps}명 레벨업!`
+    if (badgeGets) msg += ` · 🏅 뱃지 ${badgeGets}개 획득!`
     showToast(msg, delta >= 0 ? 'success' : 'warning', activityEmoji(name))
     await renderList()
   } catch (e) {
@@ -1826,6 +1831,21 @@ async function renderDetail(id) {
 
       ${choices}
 
+      <!-- 뱃지 -->
+      <div class="section-card">
+        <div class="section-title">
+          <span>🏅</span> 뱃지
+          <span class="count-pill">${(s.earned_badges || []).length}</span>
+          <button class="badge-manage-btn" id="badge-manage-btn">＋ 수여·회수</button>
+        </div>
+        ${(s.earned_badges || []).length === 0
+          ? `<div class="hint-text">아직 뱃지가 없어요. 설정 → 🏅 뱃지에서 만들고 여기서 수여할 수 있어요.</div>`
+          : `<div class="badge-chip-list">${(s.earned_badges || []).map(b => `
+              <span class="badge-chip" title="${escapeHtml(b.description || '')}">
+                <span class="bc-emoji">${b.emoji || '🏅'}</span>${escapeHtml(b.name)}${b.auto ? '<span class="bc-auto">자동</span>' : ''}
+              </span>`).join('')}</div>`}
+      </div>
+
       <!-- 점수 주기 -->
       <div class="section-card">
         <div class="section-title"><span>⚡</span> 점수 주기</div>
@@ -1871,6 +1891,7 @@ async function renderDetail(id) {
   // 이벤트 바인딩
   document.getElementById('avatar-edit-btn').onclick = () => showAvatarPicker(s)
   document.getElementById('nickname-edit-btn').onclick = () => showNicknameEditor(s)
+  document.getElementById('badge-manage-btn').onclick = () => showBadgeManageModal(s)
   document.getElementById('student-delete-btn').onclick = () => {
     const displayName = s.nickname ? `${s.nickname} (${s.name})` : s.name
     showConfirm(
@@ -1988,6 +2009,15 @@ async function addScore(studentId, name, delta) {
           }, 600 + (res.new_skills?.length || 0) * 400 + i * 400)
         })
       }
+    }
+
+    if (res.new_badges && res.new_badges.length > 0) {
+      res.new_badges.forEach((b, i) => {
+        setTimeout(() => {
+          Sound.skillGet()
+          showToast(`뱃지 획득! ${b.name}`, 'level-up', b.emoji || '🏅')
+        }, 900 + i * 400)
+      })
     }
 
     await renderDetail(studentId)
@@ -2130,6 +2160,12 @@ async function renderSettings() {
         <button class="settings-tab ${state.settingsTab === 'skills' ? 'active' : ''}" data-tab="skills">
           🎁 스킬 내용
         </button>
+        <button class="settings-tab ${state.settingsTab === 'badges' ? 'active' : ''}" data-tab="badges">
+          🏅 뱃지
+        </button>
+        <button class="settings-tab ${state.settingsTab === 'account' ? 'active' : ''}" data-tab="account">
+          👤 계정
+        </button>
       </div>
 
       <div id="settings-body"></div>
@@ -2148,9 +2184,331 @@ async function renderSettings() {
     await renderActivitiesSettings()
   } else if (state.settingsTab === 'levels') {
     await renderLevelsSettings()
+  } else if (state.settingsTab === 'badges') {
+    await renderBadgesSettings()
+  } else if (state.settingsTab === 'account') {
+    await renderAccountSettings()
   } else {
     await renderSkillsSettings()
   }
+}
+
+// ----- 뱃지 편집 (교사가 만들고, 수동/자동 부여 방식 선택) -----
+// 자동 조건은 프로그램이 판정할 수 있어야 하므로 정해진 3가지 유형만 지원:
+//   레벨 도달 / 누적 XP 도달 / 특정 활동 횟수
+function badgeCondText(b) {
+  if (b.auto_type === 'level') return `⚙️ 자동 · Lv.${b.auto_value} 도달하면`
+  if (b.auto_type === 'xp') return `⚙️ 자동 · ${Number(b.auto_value).toLocaleString()} XP 모으면`
+  if (b.auto_type === 'activity_count') return `⚙️ 자동 · '${b.auto_activity}' ${b.auto_value}번 하면`
+  return '✋ 수동 · 학생 화면에서 직접 수여'
+}
+
+async function renderBadgesSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  let badges
+  try {
+    badges = await api(`/api/classes/${state.classId}/badges`)
+  } catch (e) {
+    if (e.code === 'no_badge_table') {
+      body.innerHTML = `
+        <div class="empty-state">
+          뱃지 기능을 켜려면 데이터베이스 준비가 한 번 필요해요.<br/><br/>
+          Supabase 대시보드 → <b>SQL Editor</b>에서<br/>
+          저장소의 <b>supabase_0005_badges.sql</b> 내용을 실행한 뒤 다시 열어주세요.
+        </div>`
+      return
+    }
+    body.innerHTML = `<div class="hint-text">오류: ${escapeHtml(e.message)}</div>`
+    return
+  }
+  state.badges = badges
+
+  // 활동 횟수 조건에서 고를 활동 목록
+  let activities = state.activities
+  if (!activities.length) {
+    try {
+      activities = await api(`/api/classes/${state.classId}/activities`)
+      state.activities = activities
+    } catch { activities = [] }
+  }
+  const actNames = activities.filter(a => !a.is_custom_input).map(a => a.name)
+
+  const rows = badges.map(b => {
+    const isAct = b.auto_type === 'activity_count'
+    const actOptions = actNames.map(n =>
+      `<option value="${escapeHtml(n)}" ${n === b.auto_activity ? 'selected' : ''}>${escapeHtml(n)}</option>`
+    ).join('')
+    return `
+      <div class="badge-edit-item" data-id="${b.id}">
+        <div class="badge-edit-row1">
+          <input class="b-emoji" value="${escapeHtml(b.emoji || '🏅')}" maxlength="4" title="이모지" />
+          <input class="b-name" value="${escapeHtml(b.name || '')}" placeholder="뱃지 이름 (예: 독서왕)" />
+          <button class="b-del" title="뱃지 삭제">🗑</button>
+        </div>
+        <div class="badge-edit-row2">
+          <select class="b-type">
+            <option value="" ${!b.auto_type ? 'selected' : ''}>✋ 수동 (직접 수여)</option>
+            <option value="level" ${b.auto_type === 'level' ? 'selected' : ''}>⚙️ 레벨 도달</option>
+            <option value="xp" ${b.auto_type === 'xp' ? 'selected' : ''}>⚙️ 누적 XP 도달</option>
+            <option value="activity_count" ${b.auto_type === 'activity_count' ? 'selected' : ''}>⚙️ 활동 횟수</option>
+          </select>
+          <input type="number" class="b-value" min="1" value="${b.auto_value || ''}" placeholder="값"
+            style="${b.auto_type ? '' : 'display:none;'}" />
+          <select class="b-activity" style="${isAct ? '' : 'display:none;'}">
+            ${actOptions || '<option value="">활동 없음</option>'}
+          </select>
+        </div>
+        <div class="badge-edit-hint">${badgeCondText(b)}</div>
+      </div>
+    `
+  }).join('')
+
+  body.innerHTML = `
+    <div class="hint-text" style="margin-bottom:10px;">
+      뱃지는 <b>✋ 수동</b>(학생 화면의 뱃지 칸에서 직접 수여)이나
+      <b>⚙️ 자동</b>(조건 달성 시 저절로 부여) 중 고를 수 있어요.
+      자동 뱃지는 점수를 줄 때마다 조건을 확인해서 바로 붙습니다.
+    </div>
+    ${badges.length === 0 ? '<div class="empty-state">아직 뱃지가 없어요.<br/>아래 버튼으로 첫 뱃지를 만들어보세요!</div>' : `<div class="badge-edit-list">${rows}</div>`}
+    <button class="btn-add-level" id="add-badge">＋ 새 뱃지 만들기</button>
+  `
+
+  // 항목별 자동 저장 + 삭제
+  body.querySelectorAll('.badge-edit-item').forEach(item => {
+    const id = item.dataset.id
+    const typeSel = item.querySelector('.b-type')
+    const valueInput = item.querySelector('.b-value')
+    const actSel = item.querySelector('.b-activity')
+    const hint = item.querySelector('.badge-edit-hint')
+
+    const currentPayload = () => ({
+      name: item.querySelector('.b-name').value.trim(),
+      emoji: item.querySelector('.b-emoji').value.trim() || '🏅',
+      auto_type: typeSel.value || null,
+      auto_value: Math.trunc(Number(valueInput.value) || 0),
+      auto_activity: actSel.value || null,
+    })
+
+    const syncVisibility = () => {
+      valueInput.style.display = typeSel.value ? '' : 'none'
+      actSel.style.display = typeSel.value === 'activity_count' ? '' : 'none'
+    }
+
+    const save = async () => {
+      const payload = currentPayload()
+      if (!payload.name) { showToast('뱃지 이름을 입력해주세요', 'warning'); return }
+      if (payload.auto_type && payload.auto_value < 1) {
+        valueInput.value = '1'
+        payload.auto_value = 1
+      }
+      try {
+        await api(`/api/classes/${state.classId}/badges/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        state.badges = []
+        hint.textContent = badgeCondText(payload)
+        showToast('뱃지를 저장했어요', 'success', '🏅')
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    }
+
+    typeSel.addEventListener('change', () => {
+      syncVisibility()
+      if (typeSel.value && !Number(valueInput.value)) valueInput.value = '1'
+      save()
+    })
+    valueInput.addEventListener('change', save)
+    actSel.addEventListener('change', save)
+    item.querySelector('.b-name').addEventListener('change', save)
+    item.querySelector('.b-emoji').addEventListener('change', save)
+
+    item.querySelector('.b-del').onclick = () => {
+      const nm = item.querySelector('.b-name').value.trim() || '이 뱃지'
+      showConfirm(`'${nm}' 삭제`, '뱃지를 삭제하면 학생들이 이미 받은 뱃지 표시도 사라져요. 삭제할까요?', async () => {
+        try {
+          await api(`/api/classes/${state.classId}/badges/${id}`, { method: 'DELETE' })
+          state.badges = []
+          showToast('뱃지를 삭제했어요', 'success', '🗑️')
+          renderBadgesSettings()
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      })
+    }
+  })
+
+  document.getElementById('add-badge').onclick = async () => {
+    try {
+      await api(`/api/classes/${state.classId}/badges`, {
+        method: 'POST',
+        body: JSON.stringify({ name: '새 뱃지', emoji: '🏅' }),
+      })
+      state.badges = []
+      renderBadgesSettings()
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
+}
+
+// ----- 계정 (회원정보) -----
+async function renderAccountSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = `
+    <div class="account-card">
+      <div class="account-label">로그인 이메일 (아이디)</div>
+      <div class="account-value">${escapeHtml(state.authEmail || '-')}</div>
+      <div class="hint-text" style="margin-top:6px;">
+        이메일은 학급 데이터와 연결되어 있어 여기서 바꿀 수 없어요.
+      </div>
+
+      <div class="account-divider"></div>
+
+      <div class="account-label">비밀번호 변경</div>
+      <input type="password" id="pw-new" class="account-input" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" />
+      <input type="password" id="pw-new2" class="account-input" placeholder="새 비밀번호 확인" autocomplete="new-password" />
+      <button class="account-btn" id="pw-change-btn">🔒 비밀번호 변경</button>
+
+      <div class="account-divider"></div>
+
+      <button class="account-btn danger" id="account-logout">로그아웃</button>
+    </div>
+  `
+
+  document.getElementById('pw-change-btn').onclick = async () => {
+    const pw = document.getElementById('pw-new').value
+    const pw2 = document.getElementById('pw-new2').value
+    if (pw.length < 6) { showToast('비밀번호는 6자 이상이어야 해요', 'warning'); return }
+    if (pw !== pw2) { showToast('두 비밀번호가 서로 달라요', 'warning'); return }
+    const btn = document.getElementById('pw-change-btn')
+    btn.disabled = true
+    try {
+      await changePassword(pw)
+      showToast('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 쓰세요!', 'success', '🔒')
+      document.getElementById('pw-new').value = ''
+      document.getElementById('pw-new2').value = ''
+    } catch (e) {
+      showToast(e.message, 'error')
+    } finally {
+      btn.disabled = false
+    }
+  }
+
+  document.getElementById('account-logout').onclick = async () => {
+    if (!confirm(`${state.authEmail || ''} 계정에서 로그아웃 하시겠습니까?`)) return
+    await signOut()
+    location.reload()
+  }
+}
+
+// Supabase Auth로 비밀번호 변경 (로그인된 토큰 필요, 만료 시 1회 갱신 후 재시도)
+async function changePassword(newPassword) {
+  const cfg = await loadAuthConfig()
+  const doCall = () => fetch(cfg.supabase_url.replace(/\/+$/, '') + '/auth/v1/user', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: cfg.supabase_key,
+      Authorization: `Bearer ${state.authToken}`,
+    },
+    body: JSON.stringify({ password: newPassword }),
+  })
+  let res = await doCall()
+  if (res.status === 401 && await tryRefreshToken()) res = await doCall()
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    const msg = data.msg || data.error_description || data.error || data.message || `HTTP ${res.status}`
+    throw new Error(translateAuthError(msg))
+  }
+}
+
+// ----- 학생 상세: 뱃지 수여/회수 모달 -----
+async function showBadgeManageModal(s) {
+  let badges = state.badges
+  if (!badges.length) {
+    try {
+      badges = await api(`/api/classes/${state.classId}/badges`)
+      state.badges = badges
+    } catch (e) {
+      if (e.code === 'no_badge_table') {
+        showToast('설정 → 🏅 뱃지 탭에서 안내에 따라 데이터베이스를 먼저 준비해주세요', 'warning')
+      } else {
+        showToast(e.message, 'error')
+      }
+      return
+    }
+  }
+  if (!badges.length) {
+    showToast('만들어진 뱃지가 없어요. 설정 → 🏅 뱃지에서 먼저 만들어주세요', 'warning')
+    return
+  }
+
+  const ownedIds = new Set((s.earned_badges || []).map(b => b.badge_id))
+  let changed = false
+  const container = document.getElementById('modal-container')
+
+  const render = () => {
+    const rows = badges.map(b => {
+      const has = ownedIds.has(b.id)
+      return `
+        <div class="badge-award-item ${has ? 'owned' : ''}" data-id="${b.id}">
+          <span class="ba-emoji">${b.emoji || '🏅'}</span>
+          <div class="ba-info">
+            <div class="ba-name">${escapeHtml(b.name)}</div>
+            <div class="ba-cond">${badgeCondText(b)}</div>
+          </div>
+          <button class="ba-toggle ${has ? 'revoke' : 'give'}">${has ? '회수' : '수여'}</button>
+        </div>
+      `
+    }).join('')
+
+    container.innerHTML = `
+      <div class="modal-backdrop">
+        <div class="modal modal-wide">
+          <div class="modal-title">🏅 ${escapeHtml(s.nickname || s.name)} 뱃지 수여·회수</div>
+          <div class="hint-text" style="margin-bottom:10px;">
+            자동(⚙️) 뱃지도 직접 수여·회수할 수 있어요.
+            단, 회수해도 조건이 계속 충족되면 다음 점수 부여 때 다시 붙습니다.
+          </div>
+          <div class="badge-award-list">${rows}</div>
+          <div class="modal-actions">
+            <button class="btn-confirm" id="modal-close">완료</button>
+          </div>
+        </div>
+      </div>
+    `
+    document.getElementById('modal-close').onclick = async () => {
+      container.innerHTML = ''
+      if (changed) await renderDetail(s.id)
+    }
+    container.querySelectorAll('.badge-award-item').forEach(item => {
+      const id = item.dataset.id
+      item.querySelector('.ba-toggle').onclick = async () => {
+        try {
+          if (ownedIds.has(id)) {
+            await api(`/api/students/${s.id}/badges/${id}`, { method: 'DELETE' })
+            ownedIds.delete(id)
+            showToast('뱃지를 회수했어요', 'warning', '↩')
+          } else {
+            await api(`/api/students/${s.id}/badges/${id}`, { method: 'POST' })
+            ownedIds.add(id)
+            Sound.skillGet()
+            showToast('뱃지를 수여했어요!', 'success', '🏅')
+          }
+          changed = true
+          render()
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
+    })
+  }
+
+  render()
 }
 
 // ----- 레벨 기준 XP / 등급 구간 편집 -----
