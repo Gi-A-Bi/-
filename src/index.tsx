@@ -66,6 +66,10 @@ app.get('/', (c) => {
 
       <main id="main-view"></main>
 
+      <footer class="app-footer">
+        개발자: 김민성 · 오류·문의: <a href="mailto:hwjjlover@gmail.com">hwjjlover@gmail.com</a>
+      </footer>
+
       <div id="toast-container"></div>
       <div id="modal-container"></div>
     </div>
