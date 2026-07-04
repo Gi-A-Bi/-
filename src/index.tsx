@@ -647,8 +647,10 @@ app.put('/api/students/:id/profile', async (c) => {
 // =================================================================
 // 점수 부여
 // =================================================================
-// 한 학생에게 점수를 적용 (XP 갱신 + 레벨업 시 스킬 해금 + 자동 뱃지 판정).
+// 한 학생에게 점수를 적용 (XP 갱신 + 레벨업 시 스킬 해금 + 자동 뱃지 판정 + 코인 자동 적립).
 // 로그는 저장하지 않고 반환만 함 — 호출자가 모아서 한 번에 insert.
+// coinRate: XP 몇 점당 코인 1개 (0 = 자동 적립 끔). 누적 XP가 기준선(rate, 2*rate, …)을
+// 넘을 때마다 1코인 — XP를 깎아도 코인은 뺏지 않음 (재획득 악용은 교실 규모에서 무시).
 async function applyScoreToStudent(
   sb: any,
   levels: LevelRow[],
@@ -656,6 +658,7 @@ async function applyScoreToStudent(
   activityName: string,
   delta: number,
   autoBadges: BadgeRow[] = [],
+  coinRate: number = 0,
 ) {
   const oldLevel = calcLevel(student.xp, levels).level
   const newXp = Math.max(0, student.xp + delta)
@@ -747,8 +750,15 @@ async function applyScoreToStudent(
     }
   }
 
+  // === 코인 자동 적립 (XP 기준선 통과 수만큼) ===
+  let earnedCoins = 0
+  if (coinRate > 0 && delta > 0) {
+    earnedCoins = Math.max(0, Math.floor(newXp / coinRate) - Math.floor(student.xp / coinRate))
+  }
+
   const patch: Record<string, any> = { xp: newXp, owned_skills: ownedNow }
   if (newBadges.length) patch.badges = earnedList
+  if (earnedCoins > 0) patch.coins = (Number(student.coins) || 0) + earnedCoins
   await sb.update('students', patch, `id=eq.${student.id}`, false)
 
   const logs: ActivityLogRow[] = [
@@ -762,7 +772,27 @@ async function applyScoreToStudent(
     ...levelUpLogs,
     ...badgeLogs,
   ]
-  return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, newBadges, logs }
+  if (earnedCoins > 0) {
+    logs.push({
+      class_id: student.class_id,
+      student_id: student.id,
+      type: 'coin',
+      name: `코인 +${earnedCoins} (XP 자동 적립)`,
+      score: 0,
+    })
+  }
+  return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, newBadges, earnedCoins, logs }
+}
+
+// 학급의 코인 자동 적립 비율 로드 (설정 없거나 마이그레이션 전이면 0 = 끔)
+async function loadCoinRate(sb: any, classId: string): Promise<number> {
+  try {
+    const [cls] = await sb.select('classes', `select=draw_config&id=eq.${classId}&limit=1`)
+    const rate = Math.trunc(Number(cls?.draw_config?.coin_rate || 0))
+    return rate > 0 ? rate : 0
+  } catch {
+    return 0
+  }
 }
 
 app.post('/api/students/:id/score', async (c) => {
@@ -773,12 +803,13 @@ app.post('/api/students/:id/score', async (c) => {
 
   const body = await c.req.json<{ activity_name: string; score_delta: number }>()
   const sb = makeSupabase(c.env)
-  const [levels, autoBadges] = await Promise.all([
+  const [levels, autoBadges, coinRate] = await Promise.all([
     sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
     loadAutoBadges(sb, student.class_id),
+    loadCoinRate(sb, student.class_id),
   ])
 
-  const r = await applyScoreToStudent(sb, levels, student, body.activity_name, Number(body.score_delta || 0), autoBadges)
+  const r = await applyScoreToStudent(sb, levels, student, body.activity_name, Number(body.score_delta || 0), autoBadges, coinRate)
   await sb.insert('activity_logs', r.logs, false)
 
   return c.json({
@@ -790,6 +821,7 @@ app.post('/api/students/:id/score', async (c) => {
     new_skills: r.newSkills,
     new_pending_choices: r.newPendingChoices,
     new_badges: r.newBadges,
+    earned_coins: r.earnedCoins,
   })
 })
 
@@ -814,15 +846,16 @@ app.post('/api/classes/:classId/score-batch', async (c) => {
   )
   if (!students.length) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
 
-  const [levels, autoBadges] = await Promise.all([
+  const [levels, autoBadges, coinRate] = await Promise.all([
     sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
     loadAutoBadges(sb, classId),
+    loadCoinRate(sb, classId),
   ])
 
   const allLogs: ActivityLogRow[] = []
   const results: any[] = []
   for (const st of students) {
-    const r = await applyScoreToStudent(sb, levels, st, body.activity_name, delta, autoBadges)
+    const r = await applyScoreToStudent(sb, levels, st, body.activity_name, delta, autoBadges, coinRate)
     allLogs.push(...r.logs)
     results.push({
       id: st.id,
@@ -832,6 +865,7 @@ app.post('/api/classes/:classId/score-batch', async (c) => {
       new_skills: r.newSkills,
       new_pending_choices: r.newPendingChoices,
       new_badges: r.newBadges,
+      earned_coins: r.earnedCoins,
     })
   }
   await sb.insert('activity_logs', allLogs, false)
@@ -1579,20 +1613,41 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
   const owned = await loadOwnedClass(c, classId)
   if (owned instanceof Response) return owned
 
-  const body = await c.req.json<{ rewards: number[] }>().catch(() => ({} as any))
-  const rewards = (Array.isArray(body.rewards) ? body.rewards : [])
-    .map(v => Math.trunc(Number(v)))
-    .filter(v => Number.isFinite(v) && v >= 1 && v <= 10000)
-  if (!rewards.length) return c.json({ error: '보상 XP를 1개 이상 입력해주세요 (1~10000)' }, 400)
-  if (rewards.length > 30) return c.json({ error: '보상은 최대 30개까지 가능해요' }, 400)
+  const body = await c.req.json<{ rewards?: number[]; coin_rate?: number }>().catch(() => ({} as any))
 
   const sb = makeSupabase(c.env)
+  // 기존 설정을 읽어와 병합 (rewards만 저장할 때 coin_rate가 날아가지 않도록)
+  let current: { rewards: number[]; coin_rate?: number } = { rewards: DEFAULT_DRAW_REWARDS }
   try {
-    await sb.update('classes', { draw_config: { rewards } }, `id=eq.${classId}`, false)
+    const [cls] = await sb.select<ClassRow>('classes', `select=draw_config&id=eq.${classId}&limit=1`)
+    if (cls?.draw_config?.rewards?.length) current = { ...cls.draw_config }
   } catch {
     return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
   }
-  return c.json({ success: true, rewards })
+
+  if (body.rewards !== undefined) {
+    const rewards = (Array.isArray(body.rewards) ? body.rewards : [])
+      .map(v => Math.trunc(Number(v)))
+      .filter(v => Number.isFinite(v) && v >= 1 && v <= 10000)
+    if (!rewards.length) return c.json({ error: '보상 XP를 1개 이상 입력해주세요 (1~10000)' }, 400)
+    if (rewards.length > 30) return c.json({ error: '보상은 최대 30개까지 가능해요' }, 400)
+    current.rewards = rewards
+  }
+
+  if (body.coin_rate !== undefined) {
+    const rate = Math.trunc(Number(body.coin_rate))
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100000) {
+      return c.json({ error: '코인 비율은 0(끄기) ~ 100000 사이여야 해요' }, 400)
+    }
+    current.coin_rate = rate
+  }
+
+  try {
+    await sb.update('classes', { draw_config: current }, `id=eq.${classId}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+  return c.json({ success: true, rewards: current.rewards, coin_rate: current.coin_rate || 0 })
 })
 
 app.post('/api/students/:id/draw', async (c) => {
@@ -1607,12 +1662,13 @@ app.post('/api/students/:id/draw', async (c) => {
     ? cls.draw_config.rewards
     : DEFAULT_DRAW_REWARDS
   const reward = rewards[Math.floor(Math.random() * rewards.length)]
+  const coinRate = Math.max(0, Math.trunc(Number(cls?.draw_config?.coin_rate || 0)))
 
   const [levels, autoBadges] = await Promise.all([
     sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
     loadAutoBadges(sb, student.class_id),
   ])
-  const r = await applyScoreToStudent(sb, levels, student, '🎁 카드팩 뽑기', reward, autoBadges)
+  const r = await applyScoreToStudent(sb, levels, student, '🎁 카드팩 뽑기', reward, autoBadges, coinRate)
   await sb.insert('activity_logs', r.logs, false)
 
   return c.json({
@@ -1624,6 +1680,7 @@ app.post('/api/students/:id/draw', async (c) => {
     new_skills: r.newSkills,
     new_pending_choices: r.newPendingChoices,
     new_badges: r.newBadges,
+    earned_coins: r.earnedCoins,
   })
 })
 

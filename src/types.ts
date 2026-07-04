@@ -21,7 +21,10 @@ export interface ClassRow {
   name: string
   owner_email: string | null
   bonus_xp?: number   // 학급 전체 경험치 보정치 (학생 xp 합계에 더해짐, 학급 단위 보상/차감용)
-  draw_config?: { rewards: number[] }   // 카드팩 뽑기 보상 XP 목록 (교사가 설정에서 수정)
+  // 게임 설정 (교사가 설정에서 수정)
+  //  - rewards: 카드팩 뽑기 보상 XP 목록
+  //  - coin_rate: XP 몇 점당 코인 1개 자동 지급 (0 또는 없음 = 끄기)
+  draw_config?: { rewards: number[]; coin_rate?: number }
   created_at?: string
 }
 
