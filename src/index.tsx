@@ -590,18 +590,17 @@ app.put('/api/students/:id/profile', async (c) => {
 // =================================================================
 // 점수 부여
 // =================================================================
-app.post('/api/students/:id/score', async (c) => {
-  const id = c.req.param('id')
-  const result = await loadOwnedStudent(c, id)
-  if (result instanceof Response) return result
-  const { student } = result
-
-  const body = await c.req.json<{ activity_name: string; score_delta: number }>()
-  const sb = makeSupabase(c.env)
-
-  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+// 한 학생에게 점수를 적용 (XP 갱신 + 레벨업 시 스킬 해금).
+// 로그는 저장하지 않고 반환만 함 — 호출자가 모아서 한 번에 insert.
+async function applyScoreToStudent(
+  sb: any,
+  levels: LevelRow[],
+  student: StudentRow,
+  activityName: string,
+  delta: number,
+) {
   const oldLevel = calcLevel(student.xp, levels).level
-  const newXp = Math.max(0, student.xp + Number(body.score_delta || 0))
+  const newXp = Math.max(0, student.xp + delta)
   const newLevel = calcLevel(newXp, levels).level
 
   const ownedNow: OwnedSkill[] = Array.isArray(student.owned_skills)
@@ -658,10 +657,10 @@ app.post('/api/students/:id/score', async (c) => {
     }
   }
 
-  await sb.update<StudentRow>(
+  await sb.update(
     'students',
     { xp: newXp, owned_skills: ownedNow },
-    `id=eq.${id}`,
+    `id=eq.${student.id}`,
     false,
   )
 
@@ -670,22 +669,78 @@ app.post('/api/students/:id/score', async (c) => {
       class_id: student.class_id,
       student_id: student.id,
       type: 'score',
-      name: body.activity_name || '점수',
-      score: Number(body.score_delta || 0),
+      name: activityName || '점수',
+      score: delta,
     },
     ...levelUpLogs,
   ]
-  await sb.insert('activity_logs', logs, false)
+  return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, logs }
+}
+
+app.post('/api/students/:id/score', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const body = await c.req.json<{ activity_name: string; score_delta: number }>()
+  const sb = makeSupabase(c.env)
+  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+
+  const r = await applyScoreToStudent(sb, levels, student, body.activity_name, Number(body.score_delta || 0))
+  await sb.insert('activity_logs', r.logs, false)
 
   return c.json({
     success: true,
-    old_level: oldLevel,
-    new_level: newLevel,
-    new_xp: newXp,
-    leveled_up: newLevel > oldLevel,
-    new_skills: newSkills,
-    new_pending_choices: newPendingChoices,
+    old_level: r.oldLevel,
+    new_level: r.newLevel,
+    new_xp: r.newXp,
+    leveled_up: r.newLevel > r.oldLevel,
+    new_skills: r.newSkills,
+    new_pending_choices: r.newPendingChoices,
   })
+})
+
+// =================================================================
+// 점수 일괄 부여 — 선택한 여러 학생에게 같은 활동/점수를 한 번에
+// =================================================================
+app.post('/api/classes/:classId/score-batch', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const body = await c.req.json<{ student_ids: string[]; activity_name: string; score_delta: number }>()
+  const ids = Array.isArray(body.student_ids) ? body.student_ids.filter(Boolean) : []
+  if (!ids.length) return c.json({ error: '학생을 선택해주세요' }, 400)
+  const delta = Number(body.score_delta || 0)
+
+  const sb = makeSupabase(c.env)
+  const idList = ids.map((v) => encodeURIComponent(String(v))).join(',')
+  const students = await sb.select<StudentRow>(
+    'students',
+    `select=*&class_id=eq.${classId}&id=in.(${idList})`,
+  )
+  if (!students.length) return c.json({ error: '학생을 찾을 수 없습니다' }, 404)
+
+  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+
+  const allLogs: ActivityLogRow[] = []
+  const results: any[] = []
+  for (const st of students) {
+    const r = await applyScoreToStudent(sb, levels, st, body.activity_name, delta)
+    allLogs.push(...r.logs)
+    results.push({
+      id: st.id,
+      new_xp: r.newXp,
+      new_level: r.newLevel,
+      leveled_up: r.newLevel > r.oldLevel,
+      new_skills: r.newSkills,
+      new_pending_choices: r.newPendingChoices,
+    })
+  }
+  await sb.insert('activity_logs', allLogs, false)
+
+  return c.json({ success: true, count: results.length, results })
 })
 
 // =================================================================
