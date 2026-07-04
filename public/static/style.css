@@ -3483,3 +3483,19 @@ button {
   border: 1.5px solid rgba(239, 68, 68, 0.45);
   color: #fca5a5;
 }
+
+/* ==============================
+   페이지 하단 개발자 표시 (작고 은은하게)
+   ============================== */
+.app-footer {
+  text-align: center;
+  padding: 18px 16px 24px;
+  font-size: 11px;
+  color: rgba(230, 225, 245, 0.35);
+  letter-spacing: 0.2px;
+}
+.app-footer a {
+  color: rgba(230, 225, 245, 0.5);
+  text-decoration: none;
+}
+.app-footer a:hover { text-decoration: underline; }
