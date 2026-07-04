@@ -14,6 +14,8 @@ const state = {
   levelTable: [],
   activities: [],
   badges: [],               // 뱃지 정의 캐시 (설정에서 수정 시 비움)
+  shopItems: [],            // 상점 상품 캐시 (설정에서 수정 시 비움)
+  drawRewards: [20, 40, 60, 80, 100],   // 카드팩 뽑기 보상 XP (학급 설정)
   settingsTab: 'activities',
   booted: false,
 
@@ -160,6 +162,7 @@ function clearAuthSession() {
   state.activities = []
   state.levelTable = []
   state.badges = []
+  state.shopItems = []
   state.multiSelect = false
   state.selectedIds = new Set()
   localStorage.removeItem(AUTH_STORAGE_KEY)
@@ -275,6 +278,9 @@ async function bootstrap() {
       state.classId = data.my_class.id
       state.className = data.my_class.name || '클업'
       state.bonusXp = Number(data.my_class.bonus_xp || 0)
+      if (data.my_class.draw_config?.rewards?.length) {
+        state.drawRewards = data.my_class.draw_config.rewards
+      }
       state.booted = true
       return { ok: true, hasClass: true }
     }
@@ -1061,6 +1067,41 @@ async function renderList() {
         <div class="rank-banner-title"><span>🏆</span> 학급 순위</div>
         <ol class="rank-list">${rankRows}</ol>
       </div>`
+
+  // === 모둠 순위 (모둠이 하나라도 지정돼 있을 때만) ===
+  const teamMap = {}
+  students.forEach(s => {
+    const t = (s.team || '').trim()
+    if (!t) return
+    if (!teamMap[t]) teamMap[t] = { xp: 0, n: 0 }
+    teamMap[t].xp += Number(s.xp) || 0
+    teamMap[t].n++
+  })
+  const teamNames = Object.keys(teamMap)
+  const teamMedals = ['🥇', '🥈', '🥉']
+  const teamHtml = teamNames.length ? `
+      <div class="rank-banner team-banner">
+        <div class="rank-banner-title"><span>⚔️</span> 모둠 순위</div>
+        <ol class="team-rank-list">
+          ${Object.entries(teamMap).sort((a, b) => b[1].xp - a[1].xp).map(([name, t], i) => `
+            <li class="team-rank-item ${i === 0 ? 'team-top' : ''}">
+              ${i < 3 ? `<span class="rank-medal">${teamMedals[i]}</span>` : `<span class="rank-num">${i + 1}</span>`}
+              <div class="rank-info">
+                <div class="rank-name">${escapeHtml(name)}</div>
+                <div class="rank-sub">${t.n}명</div>
+              </div>
+              <div class="rank-xp">${t.xp.toLocaleString()}<span class="rank-xp-unit">XP</span></div>
+            </li>`).join('')}
+        </ol>
+      </div>` : ''
+
+  // 선택 모드일 때: 모둠 통째로 선택하는 칩
+  const teamChipsHtml = (state.multiSelect && teamNames.length) ? `
+      <div class="team-select-row">
+        <span class="team-select-label">모둠 선택:</span>
+        ${teamNames.map(n => `<button class="team-chip" data-team="${escapeHtml(n)}">👥 ${escapeHtml(n)}</button>`).join('')}
+      </div>` : ''
+
   const mselBarHtml = state.multiSelect ? `
       <div class="msel-bar" id="msel-bar">
         <div class="msel-count">✅ <strong id="msel-count-num">0</strong>명 선택</div>
@@ -1075,7 +1116,7 @@ async function renderList() {
       <div class="view-container list-view">
         <div class="split-view">
           <div class="split-left">
-            ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}
+            ${titleHtml}${bannerHtml}${teamChipsHtml}${gridHtml}${rankHtml}${teamHtml}
           </div>
           <div class="split-right">
             <div id="detail-pane" class="detail-pane">
@@ -1088,7 +1129,7 @@ async function renderList() {
   } else {
     main.innerHTML = `
       <div class="view-container list-view">
-        ${titleHtml}${bannerHtml}${gridHtml}${rankHtml}${mselBarHtml}
+        ${titleHtml}${bannerHtml}${teamChipsHtml}${gridHtml}${rankHtml}${teamHtml}${mselBarHtml}
       </div>`
   }
 
@@ -1112,6 +1153,21 @@ async function renderList() {
   if (state.multiSelect) {
     document.getElementById('msel-give').onclick = showMultiXpModal
     document.getElementById('msel-exit').onclick = toggleMultiSelect
+    // 모둠 칩: 그 모둠 전원 선택/해제 토글
+    main.querySelectorAll('.team-chip').forEach(chip => {
+      chip.onclick = () => {
+        const team = chip.dataset.team
+        const members = state.students.filter(st => (st.team || '').trim() === team)
+        const allSelected = members.every(st => state.selectedIds.has(st.id))
+        members.forEach(st => {
+          if (allSelected) state.selectedIds.delete(st.id)
+          else state.selectedIds.add(st.id)
+          const card = main.querySelector(`.tcard[data-id="${st.id}"]`)
+          if (card) card.classList.toggle('msel', !allSelected)
+        })
+        updateMselBar()
+      }
+    })
     // 다시 그려도 기존 선택 유지 (삭제된 학생은 선택에서 제거)
     const validIds = new Set(students.map(s => s.id))
     state.selectedIds.forEach(id => { if (!validIds.has(id)) state.selectedIds.delete(id) })
@@ -1807,6 +1863,7 @@ async function renderDetail(id) {
         <div class="detail-badges">
           <span class="level-pill" style="font-size:14px; padding:4px 12px;">Lv.${s.level}</span>
           <span class="rank-badge ${rank.cls}" style="font-size:14px; padding:4px 12px;">${rank.icon} ${rank.label}</span>
+          ${s.team ? `<span class="team-pill">👥 ${escapeHtml(s.team)}</span>` : ''}
         </div>
 
         <div class="hp-row">
@@ -1844,12 +1901,42 @@ async function renderDetail(id) {
               <span class="badge-chip" title="${escapeHtml(b.description || '')}">
                 <span class="bc-emoji">${b.emoji || '🏅'}</span>${escapeHtml(b.name)}${b.auto ? '<span class="bc-auto">자동</span>' : ''}
               </span>`).join('')}</div>`}
+        ${(s.badge_progress || []).length ? `
+          <div class="badge-progress-title">🔒 도전 중인 뱃지</div>
+          <div class="badge-progress-list">
+            ${(s.badge_progress || []).map(bp => `
+              <div class="badge-prog">
+                <span class="bp-emoji">${bp.emoji || '🏅'}</span>
+                <div class="bp-mid">
+                  <div class="bp-name">${escapeHtml(bp.name)}</div>
+                  <div class="bp-bar"><div class="bp-fg" style="width:${Math.min(100, Math.round(bp.current / bp.target * 100))}%"></div></div>
+                </div>
+                <span class="bp-count">${bp.current}/${bp.target}</span>
+              </div>`).join('')}
+          </div>` : ''}
       </div>
 
       <!-- 점수 주기 -->
       <div class="section-card">
-        <div class="section-title"><span>⚡</span> 점수 주기</div>
+        <div class="section-title">
+          <span>⚡</span> 점수 주기
+          <button class="badge-manage-btn draw-open-btn" id="draw-btn">🎁 카드팩 뽑기</button>
+        </div>
         <div class="score-grid">${scoreBtns}</div>
+      </div>
+
+      <!-- 상점 -->
+      <div class="section-card">
+        <div class="section-title">
+          <span>🛍️</span> 상점
+          <span class="coin-pill">🪙 ${Number(s.coins) || 0}</span>
+          <div class="coin-controls">
+            <button id="coin-minus" title="코인 −1">−</button>
+            <button id="coin-plus" title="코인 +1">＋</button>
+            <button id="coin-custom" title="코인 직접 조정">±N</button>
+          </div>
+        </div>
+        <div id="shop-body"><div class="hint-text">불러오는 중...</div></div>
       </div>
 
       <!-- 패시브 스킬 -->
@@ -1892,6 +1979,11 @@ async function renderDetail(id) {
   document.getElementById('avatar-edit-btn').onclick = () => showAvatarPicker(s)
   document.getElementById('nickname-edit-btn').onclick = () => showNicknameEditor(s)
   document.getElementById('badge-manage-btn').onclick = () => showBadgeManageModal(s)
+  document.getElementById('draw-btn').onclick = () => showDrawModal(s)
+  document.getElementById('coin-minus').onclick = () => adjustCoins(s, -1)
+  document.getElementById('coin-plus').onclick = () => adjustCoins(s, 1)
+  document.getElementById('coin-custom').onclick = () => showCoinPrompt(s)
+  loadShopSection(s)
   document.getElementById('student-delete-btn').onclick = () => {
     const displayName = s.nickname ? `${s.nickname} (${s.name})` : s.name
     showConfirm(
@@ -2163,6 +2255,12 @@ async function renderSettings() {
         <button class="settings-tab ${state.settingsTab === 'badges' ? 'active' : ''}" data-tab="badges">
           🏅 뱃지
         </button>
+        <button class="settings-tab ${state.settingsTab === 'teams' ? 'active' : ''}" data-tab="teams">
+          👥 모둠
+        </button>
+        <button class="settings-tab ${state.settingsTab === 'shop' ? 'active' : ''}" data-tab="shop">
+          🎁 뽑기·상점
+        </button>
         <button class="settings-tab ${state.settingsTab === 'account' ? 'active' : ''}" data-tab="account">
           👤 계정
         </button>
@@ -2186,6 +2284,10 @@ async function renderSettings() {
     await renderLevelsSettings()
   } else if (state.settingsTab === 'badges') {
     await renderBadgesSettings()
+  } else if (state.settingsTab === 'teams') {
+    await renderTeamsSettings()
+  } else if (state.settingsTab === 'shop') {
+    await renderShopSettings()
   } else if (state.settingsTab === 'account') {
     await renderAccountSettings()
   } else {
@@ -2355,6 +2457,190 @@ async function renderBadgesSettings() {
   }
 }
 
+// ----- 모둠 설정 (학생별 모둠 지정 → 목록 화면에 모둠 순위 표시) -----
+async function renderTeamsSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  const students = await api(`/api/classes/${state.classId}/students`)
+  state.students = students
+
+  if (!students.length) {
+    body.innerHTML = '<div class="empty-state">학생을 먼저 등록해주세요.</div>'
+    return
+  }
+
+  const teamNames = [...new Set(students.map(s => (s.team || '').trim()).filter(Boolean))]
+  const rows = students.map(s => `
+    <div class="team-edit-item" data-id="${s.id}">
+      <span class="te-num">${s.number}</span>
+      <span class="te-name">${escapeHtml(s.nickname || s.name)}</span>
+      <input class="te-team" list="team-name-list" value="${escapeHtml(s.team || '')}" placeholder="모둠 이름 (비우면 없음)" />
+    </div>
+  `).join('')
+
+  body.innerHTML = `
+    <div class="hint-text" style="margin-bottom:10px;">
+      학생마다 모둠 이름을 적어주세요 (예: 1모둠, 불사조팀).
+      <b>같은 이름 = 같은 모둠</b>이 되고, 목록 화면에 <b>⚔️ 모둠 순위</b>(모둠원 XP 합계)가 나타나요.
+      여러 명 XP 주기에서도 모둠 통째로 선택할 수 있어요.
+    </div>
+    <datalist id="team-name-list">${teamNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}</datalist>
+    <div class="team-edit-list">${rows}</div>
+  `
+
+  body.querySelectorAll('.team-edit-item').forEach(item => {
+    const input = item.querySelector('.te-team')
+    input.addEventListener('change', async () => {
+      try {
+        await api(`/api/students/${item.dataset.id}/team`, {
+          method: 'PUT',
+          body: JSON.stringify({ team: input.value }),
+        })
+        showToast('모둠을 저장했어요', 'success', '👥')
+        // 새 모둠 이름을 자동완성 목록에도 반영
+        const dl = document.getElementById('team-name-list')
+        const v = input.value.trim()
+        if (v && ![...dl.options].some(o => o.value === v)) {
+          const opt = document.createElement('option')
+          opt.value = v
+          dl.appendChild(opt)
+        }
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    })
+  })
+}
+
+// ----- 뽑기·상점 설정 -----
+async function renderShopSettings() {
+  const body = document.getElementById('settings-body')
+  body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
+
+  let items = null
+  let migrationNeeded = false
+  try {
+    items = await api(`/api/classes/${state.classId}/shop`)
+    state.shopItems = items
+  } catch (e) {
+    if (e.code === 'no_migration_0006') migrationNeeded = true
+    else { body.innerHTML = `<div class="hint-text">오류: ${escapeHtml(e.message)}</div>`; return }
+  }
+
+  if (migrationNeeded) {
+    body.innerHTML = `
+      <div class="empty-state">
+        뽑기·상점 기능을 켜려면 데이터베이스 준비가 한 번 필요해요.<br/><br/>
+        Supabase 대시보드 → <b>SQL Editor</b>에서<br/>
+        저장소의 <b>supabase_0006_draw_team_shop.sql</b> 내용을 실행한 뒤 다시 열어주세요.
+      </div>`
+    return
+  }
+
+  const itemRows = items.map(it => `
+    <div class="shop-edit-item" data-id="${it.id}">
+      <input class="sh-emoji" value="${escapeHtml(it.emoji || '🎟️')}" maxlength="4" title="이모지" />
+      <input class="sh-name" value="${escapeHtml(it.name || '')}" placeholder="상품 이름 (예: 자리이동권)" />
+      <input class="sh-price" type="number" min="1" value="${it.price}" title="가격(코인)" />
+      <button class="sh-del" title="상품 삭제">🗑</button>
+    </div>
+  `).join('')
+
+  body.innerHTML = `
+    <div class="section-card">
+      <div class="section-title"><span>🎁</span> 카드팩 뽑기 보상</div>
+      <div class="hint-text" style="margin-bottom:8px;">
+        학생 화면의 <b>🎁 카드팩 뽑기</b>에서 무작위로 나올 XP 목록이에요 (쉼표로 구분).
+        예: 생일 이벤트라면 20~100 사이 값들을 넣어주세요.
+      </div>
+      <div class="draw-config-row">
+        <input id="draw-rewards" class="account-input" style="flex:1;" value="${state.drawRewards.join(', ')}" placeholder="예: 20, 40, 60, 80, 100" />
+        <button class="account-btn" id="draw-save" style="flex:0 0 auto;">저장</button>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title"><span>🛍️</span> 상점 상품</div>
+      <div class="hint-text" style="margin-bottom:8px;">
+        학생은 <b>🪙 코인</b>으로 상품을 사서 쿠폰함에 보관했다가 사용해요.
+        코인은 학생 화면의 상점 칸에서 −/＋ 버튼으로 주고 뺏을 수 있어요.
+      </div>
+      ${items.length ? `<div class="shop-edit-list">${itemRows}</div>` : '<div class="empty-state">아직 상품이 없어요.<br/>아래 버튼으로 첫 상품을 만들어보세요!</div>'}
+      <button class="btn-add-level" id="add-shop-item">＋ 새 상품 추가</button>
+    </div>
+  `
+
+  document.getElementById('draw-save').onclick = async () => {
+    const raw = document.getElementById('draw-rewards').value
+    const rewards = raw.split(/[,\s]+/).map(v => Math.trunc(Number(v))).filter(v => v >= 1 && v <= 10000)
+    if (!rewards.length) { showToast('1~10000 사이 XP를 1개 이상 입력해주세요', 'warning'); return }
+    try {
+      await api(`/api/classes/${state.classId}/draw-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ rewards }),
+      })
+      state.drawRewards = rewards
+      document.getElementById('draw-rewards').value = rewards.join(', ')
+      showToast('뽑기 보상을 저장했어요', 'success', '🎁')
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
+
+  body.querySelectorAll('.shop-edit-item').forEach(item => {
+    const id = item.dataset.id
+    const save = async () => {
+      const payload = {
+        name: item.querySelector('.sh-name').value.trim(),
+        emoji: item.querySelector('.sh-emoji').value.trim() || '🎟️',
+        price: Math.trunc(Number(item.querySelector('.sh-price').value) || 0),
+      }
+      if (!payload.name) { showToast('상품 이름을 입력해주세요', 'warning'); return }
+      if (payload.price < 1) { item.querySelector('.sh-price').value = '1'; payload.price = 1 }
+      try {
+        await api(`/api/classes/${state.classId}/shop/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        state.shopItems = []
+        showToast('상품을 저장했어요', 'success', '🛍️')
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    }
+    item.querySelector('.sh-name').addEventListener('change', save)
+    item.querySelector('.sh-emoji').addEventListener('change', save)
+    item.querySelector('.sh-price').addEventListener('change', save)
+    item.querySelector('.sh-del').onclick = () => {
+      const nm = item.querySelector('.sh-name').value.trim() || '이 상품'
+      showConfirm(`'${nm}' 삭제`, '상품을 삭제할까요? (이미 산 쿠폰은 그대로 남아요)', async () => {
+        try {
+          await api(`/api/classes/${state.classId}/shop/${id}`, { method: 'DELETE' })
+          state.shopItems = []
+          showToast('상품을 삭제했어요', 'success', '🗑️')
+          renderShopSettings()
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      })
+    }
+  })
+
+  document.getElementById('add-shop-item').onclick = async () => {
+    try {
+      await api(`/api/classes/${state.classId}/shop`, {
+        method: 'POST',
+        body: JSON.stringify({ name: '새 상품', emoji: '🎟️', price: 3 }),
+      })
+      state.shopItems = []
+      renderShopSettings()
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
+}
+
 // ----- 계정 (회원정보) -----
 async function renderAccountSettings() {
   const body = document.getElementById('settings-body')
@@ -2424,6 +2710,184 @@ async function changePassword(newPassword) {
     const msg = data.msg || data.error_description || data.error || data.message || `HTTP ${res.status}`
     throw new Error(translateAuthError(msg))
   }
+}
+
+// ----- 학생 상세: 카드팩 뽑기 (보상 XP는 설정 → 뽑기·상점에서 수정) -----
+function showDrawModal(s) {
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal draw-modal">
+        <div class="modal-title">🎁 카드팩 뽑기</div>
+        <div class="hint-text" style="text-align:center;">${escapeHtml(s.nickname || s.name)} — 카드 한 장을 골라요!</div>
+        <div class="draw-cards">
+          ${[0, 1, 2].map(i => `
+            <div class="draw-card" data-i="${i}">
+              <div class="dc-inner">
+                <div class="dc-back"><span class="dc-logo">클업</span><span class="dc-q">?</span></div>
+                <div class="dc-front"><span class="dc-xp"></span><span class="dc-unit">XP</span></div>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+        </div>
+      </div>
+    </div>
+  `
+  let drawing = false
+  document.getElementById('modal-cancel').onclick = () => {
+    if (!drawing) container.innerHTML = ''
+  }
+  container.querySelectorAll('.draw-card').forEach(card => {
+    card.onclick = async () => {
+      if (drawing) return
+      drawing = true
+      try {
+        const res = await api(`/api/students/${s.id}/draw`, { method: 'POST' })
+        card.querySelector('.dc-xp').textContent = `+${res.reward}`
+        card.classList.add('flipped')
+        container.querySelectorAll('.draw-card').forEach(c2 => {
+          if (c2 !== card) c2.classList.add('dimmed')
+        })
+        setTimeout(() => Sound.levelUp(), 350)
+        setTimeout(() => {
+          showToast(`🎁 카드팩 뽑기 +${res.reward} XP!`, 'level-up', '🎉')
+          if (res.leveled_up) {
+            setTimeout(() => showToast(`🎉 레벨 ${res.new_level} 달성!`, 'level-up', '🎉'), 400)
+          }
+          if (res.new_badges && res.new_badges.length) {
+            res.new_badges.forEach((b, i) => {
+              setTimeout(() => showToast(`뱃지 획득! ${b.name}`, 'level-up', b.emoji || '🏅'), 800 + i * 400)
+            })
+          }
+        }, 700)
+        setTimeout(async () => {
+          container.innerHTML = ''
+          await renderDetail(s.id)
+        }, 2100)
+      } catch (e) {
+        drawing = false
+        showToast(e.message, 'error')
+      }
+    }
+  })
+}
+
+// ----- 학생 상세: 상점 (코인으로 쿠폰 구매 → 쿠폰함 → 사용) -----
+async function loadShopSection(s) {
+  const body = document.getElementById('shop-body')
+  if (!body) return
+
+  let items = state.shopItems
+  if (!items.length) {
+    try {
+      items = await api(`/api/classes/${state.classId}/shop`)
+      state.shopItems = items
+    } catch (e) {
+      body.innerHTML = `<div class="hint-text">${e.code === 'no_migration_0006'
+        ? '상점을 켜려면 Supabase에서 supabase_0006_draw_team_shop.sql 을 실행해주세요.'
+        : '오류: ' + escapeHtml(e.message)}</div>`
+      return
+    }
+  }
+
+  const coins = Number(s.coins) || 0
+  const itemsHtml = items.length ? `
+    <div class="shop-grid">
+      ${items.map(it => {
+        const ok = coins >= it.price
+        return `
+          <button class="shop-item ${ok ? '' : 'poor'}" data-id="${it.id}" data-name="${escapeHtml(it.name)}" data-price="${it.price}" ${ok ? '' : 'disabled'}>
+            <div class="si-emoji">${it.emoji || '🎟️'}</div>
+            <div class="si-name">${escapeHtml(it.name)}</div>
+            <div class="si-price">🪙 ${it.price}</div>
+          </button>`
+      }).join('')}
+    </div>` : '<div class="hint-text">상품이 없어요. 설정 → 🎁 뽑기·상점에서 만들 수 있어요.</div>'
+
+  const unused = (s.coupons || []).filter(cp => !cp.used_at)
+  const couponsHtml = unused.length ? `
+    <div class="coupon-title">🎫 쿠폰함 <span class="count-pill">${unused.length}</span></div>
+    <div class="coupon-list">
+      ${unused.map(cp => `
+        <div class="coupon-item">
+          <span class="cp-emoji">${cp.emoji || '🎟️'}</span>
+          <span class="cp-name">${escapeHtml(cp.name)}</span>
+          <button class="cp-use" data-uid="${escapeHtml(cp.uid)}" data-name="${escapeHtml(cp.name)}">사용</button>
+        </div>`).join('')}
+    </div>` : ''
+
+  body.innerHTML = itemsHtml + couponsHtml
+
+  body.querySelectorAll('.shop-item').forEach(btn => {
+    btn.onclick = () => {
+      showConfirm(
+        `${btn.dataset.name} 구매`,
+        `🪙 ${btn.dataset.price}코인으로 구매할까요?`,
+        async () => {
+          try {
+            await api(`/api/students/${s.id}/purchase/${btn.dataset.id}`, { method: 'POST' })
+            Sound.skillGet()
+            showToast(`${btn.dataset.name} 구매 완료! 쿠폰함에 담겼어요`, 'success', '🛍️')
+            await renderDetail(s.id)
+          } catch (e) {
+            showToast(e.message, 'error')
+          }
+        }
+      )
+    }
+  })
+  body.querySelectorAll('.cp-use').forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await api(`/api/students/${s.id}/coupons/${btn.dataset.uid}/use`, { method: 'POST' })
+        showToast(`${btn.dataset.name} 쿠폰을 사용했어요`, 'success', '🎫')
+        await renderDetail(s.id)
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    }
+  })
+}
+
+async function adjustCoins(s, delta) {
+  try {
+    await api(`/api/students/${s.id}/coins`, {
+      method: 'POST',
+      body: JSON.stringify({ delta }),
+    })
+    delta > 0 ? Sound.scoreUp() : Sound.scoreDown()
+    await renderDetail(s.id)
+  } catch (e) {
+    showToast(e.message, 'error')
+  }
+}
+
+function showCoinPrompt(s) {
+  const container = document.getElementById('modal-container')
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">🪙 코인 조정 — ${escapeHtml(s.nickname || s.name)}</div>
+        <div class="hint-text">현재 ${Number(s.coins) || 0}코인 · 음수를 입력하면 차감돼요</div>
+        <input type="number" id="coin-delta" class="account-input" placeholder="예: 5 또는 -3" style="width:100%; margin-top:8px;" />
+        <div class="modal-actions">
+          <button class="btn-cancel" id="modal-cancel">취소</button>
+          <button class="btn-confirm" id="modal-confirm">적용</button>
+        </div>
+      </div>
+    </div>
+  `
+  const input = document.getElementById('coin-delta')
+  document.getElementById('modal-cancel').onclick = () => { container.innerHTML = '' }
+  document.getElementById('modal-confirm').onclick = () => {
+    const delta = Math.trunc(Number(input.value) || 0)
+    if (!delta) { showToast('조정할 코인 수를 입력해주세요', 'warning'); return }
+    container.innerHTML = ''
+    adjustCoins(s, delta)
+  }
+  setTimeout(() => input.focus(), 50)
 }
 
 // ----- 학생 상세: 뱃지 수여/회수 모달 -----

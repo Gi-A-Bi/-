@@ -27,6 +27,9 @@
    → `levels.unlock_uses` 컬럼 추가 (스킬 보상의 상시/회권 구분). 안 돌리면 스킬 유형·횟수 설정 시 오류.
 7. **Supabase SQL Editor에서** `supabase_0005_badges.sql` 실행
    → `badges` 테이블 + `students.badges` 컬럼 추가 (뱃지 기능). 안 돌리면 설정 → 뱃지 탭에서 안내 문구가 뜸 (점수 주기 등 다른 기능은 정상 동작).
+   ※ 새 테이블에 RLS가 자동으로 켜졌다면 `ALTER TABLE badges DISABLE ROW LEVEL SECURITY;` 도 실행 (다른 테이블과 동일하게 서버단 보안 사용).
+8. **Supabase SQL Editor에서** `supabase_0006_draw_team_shop.sql` 실행
+   → 카드팩 뽑기(`classes.draw_config`), 모둠전(`students.team`), 상점(`students.coins`/`coupons` + `shop_items` 테이블) 추가. 안 돌리면 해당 기능에서만 안내 문구가 뜸.
 
 ## 데이터 저장소
 
