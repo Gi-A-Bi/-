@@ -12,6 +12,13 @@ export const renderer = jsxRenderer(({ children }) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <meta name="theme-color" content="#0e0925" />
         <title>클업 (CLASS UP)</title>
+        {/* PWA — 홈 화면에 추가 시 전용 아이콘/이름/전체화면으로 열림 */}
+        <link rel="manifest" href="/static/manifest.json" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="클업" />
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
         {/* 본문: Pretendard (한글 UI 표준, 가독성 높음) — CDN으로 동적 서브셋 */}
         <link rel="preconnect" href="https://cdn.jsdelivr.net" />
