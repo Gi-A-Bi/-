@@ -25,6 +25,8 @@
    → `classes.bonus_xp` 컬럼 추가 (학급 전체 경험치의 학급 단위 보상/차감용). 안 돌리면 학급 경험치 "조정" 시 오류.
 6. **Supabase SQL Editor에서** `migrations/supabase_0004_skill_unlock_uses.sql` 실행
    → `levels.unlock_uses` 컬럼 추가 (스킬 보상의 상시/회권 구분). 안 돌리면 스킬 유형·횟수 설정 시 오류.
+7. **Supabase SQL Editor에서** `supabase_0005_badges.sql` 실행
+   → `badges` 테이블 + `students.badges` 컬럼 추가 (뱃지 기능). 안 돌리면 설정 → 뱃지 탭에서 안내 문구가 뜸 (점수 주기 등 다른 기능은 정상 동작).
 
 ## 데이터 저장소
 
