@@ -595,9 +595,19 @@ app.get('/api/students/:id', async (c) => {
     })
   }
 
+  // 최근 점수 기록 — 잘못 누른 활동을 되돌릴 수 있도록 상세 화면에 내려줌
+  // ('↩ 취소:' 기록은 되돌리기의 결과이므로 다시 취소 대상이 되지 않게 제외)
+  const recentLogs = (await sb.select<ActivityLogRow>(
+    'activity_logs',
+    `select=id,name,score,created_at&student_id=eq.${student.id}&type=eq.score&order=created_at.desc,id.desc&limit=24`,
+  ).catch(() => [] as ActivityLogRow[]))
+    .filter(l => !String(l.name || '').startsWith('↩'))
+    .slice(0, 12)
+
   return c.json({
     ...e, skills, pending_choices, used_list: usedList,
     earned_badges: earnedBadges, badge_progress: badgeProgress,
+    recent_logs: recentLogs,
   })
 })
 
@@ -750,13 +760,24 @@ async function applyScoreToStudent(
     }
   }
 
-  // === 코인 자동 적립 (XP 기준선 통과 수만큼) ===
+  // === 코인 자동 적립 ===
+  // 누적 XP 기준으로 "지금까지 받았어야 할 코인 수"(= floor(xp / rate))를 계산하고,
+  // 이미 자동으로 준 수(coins_auto)와의 차이만 지급한다. 이렇게 하면
+  //  - 비율을 나중에 켜거나 바꿔도 밀린 만큼 한 번에 따라잡히고,
+  //  - 같은 XP 구간에서 두 번 지급되는 일이 없다.
+  // coins_auto 컬럼이 아직 없으면(마이그레이션 0007 전) 예전 방식(구간 통과 수)으로 동작.
+  const patch: Record<string, any> = { xp: newXp, owned_skills: ownedNow }
   let earnedCoins = 0
-  if (coinRate > 0 && delta > 0) {
-    earnedCoins = Math.max(0, Math.floor(newXp / coinRate) - Math.floor(student.xp / coinRate))
+  if (coinRate > 0) {
+    if (hasCoinsAuto(student)) {
+      const granted = Math.max(0, Math.trunc(Number(student.coins_auto) || 0))
+      earnedCoins = Math.max(0, Math.floor(newXp / coinRate) - granted)
+      if (earnedCoins > 0) patch.coins_auto = granted + earnedCoins
+    } else if (delta > 0) {
+      earnedCoins = Math.max(0, Math.floor(newXp / coinRate) - Math.floor(student.xp / coinRate))
+    }
   }
 
-  const patch: Record<string, any> = { xp: newXp, owned_skills: ownedNow }
   if (newBadges.length) patch.badges = earnedList
   if (earnedCoins > 0) patch.coins = (Number(student.coins) || 0) + earnedCoins
   await sb.update('students', patch, `id=eq.${student.id}`, false)
@@ -782,6 +803,52 @@ async function applyScoreToStudent(
     })
   }
   return { oldLevel, newLevel, newXp, newSkills, newPendingChoices, newBadges, earnedCoins, logs }
+}
+
+// students.coins_auto (지금까지 자동 지급한 코인 수) 컬럼이 있는지 — 0007 마이그레이션 여부
+function hasCoinsAuto(student: StudentRow): boolean {
+  return typeof (student as any).coins_auto === 'number'
+}
+
+// 학급 전체 코인 정산 — 각 학생이 지금 XP 기준으로 받았어야 할 코인(floor(xp/rate))에서
+// 이미 자동으로 준 수(coins_auto)를 뺀 만큼 채워준다. 비율을 켜거나 내렸을 때 바로 반영됨.
+// coins_auto 컬럼이 없으면(0007 전) supported=false 로 알려주고 아무것도 하지 않음.
+interface CoinSettleResult { supported: boolean; students: number; coins: number }
+
+async function settleCoinsForClass(sb: any, classId: string, rate: number): Promise<CoinSettleResult> {
+  let rows: StudentRow[]
+  try {
+    rows = await sb.select('students', `select=id,xp,coins,coins_auto&class_id=eq.${classId}`) as StudentRow[]
+  } catch {
+    return { supported: false, students: 0, coins: 0 }
+  }
+  if (rate <= 0) return { supported: true, students: 0, coins: 0 }
+
+  let students = 0
+  let coins = 0
+  const logs: ActivityLogRow[] = []
+  for (const st of rows) {
+    const granted = Math.max(0, Math.trunc(Number(st.coins_auto) || 0))
+    const add = Math.floor((Number(st.xp) || 0) / rate) - granted
+    if (add <= 0) continue
+    await sb.update(
+      'students',
+      { coins: (Number(st.coins) || 0) + add, coins_auto: granted + add },
+      `id=eq.${st.id}`,
+      false,
+    )
+    students++
+    coins += add
+    logs.push({
+      class_id: classId,
+      student_id: st.id,
+      type: 'coin',
+      name: `코인 +${add} (XP 자동 적립 정산)`,
+      score: 0,
+    })
+  }
+  if (logs.length) await sb.insert('activity_logs', logs, false)
+  return { supported: true, students, coins }
 }
 
 // 학급의 코인 자동 적립 비율 로드 (설정 없거나 마이그레이션 전이면 0 = 끔)
@@ -871,6 +938,166 @@ app.post('/api/classes/:classId/score-batch', async (c) => {
   await sb.insert('activity_logs', allLogs, false)
 
   return c.json({ success: true, count: results.length, results })
+})
+
+// =================================================================
+// 점수 기록 취소 (되돌리기)
+// =================================================================
+// 잘못 누른 활동 1건을 없던 일로 만든다. 기록만 지우는 게 아니라
+//   1) XP 를 되돌리고
+//   2) 그 기록 때문에 올라간 레벨/스킬을 (아직 안 쓴 것만) 회수하고
+//   3) 활동 횟수·XP·레벨 조건이 깨진 '자동' 뱃지를 회수하고
+//   4) XP 자동 적립으로 줬던 코인을 되돌린다.
+// 교사가 직접 수여한 뱃지는 건드리지 않는다.
+
+// 아직 한 번도 쓰지 않은 스킬인지 (레벨이 내려갈 때 회수해도 되는지 판단)
+function isUntouchedSkill(sk: OwnedSkill): boolean {
+  if (sk.pending) return true
+  if (sk.permanent) return true
+  if (typeof sk.uses_left !== 'number') return true
+  const total = typeof sk.uses_total === 'number' ? sk.uses_total : sk.uses_left
+  return sk.uses_left >= total
+}
+
+// 자동 뱃지 조건이 (되돌린 뒤 기준으로) 아직 충족되는지
+async function autoBadgeStillMet(
+  sb: any, studentId: string, b: BadgeRow, xp: number, level: number,
+): Promise<boolean> {
+  if (b.auto_type === 'level') return level >= (b.auto_value || 0)
+  if (b.auto_type === 'xp') return xp >= (b.auto_value || 0)
+  if (b.auto_type === 'activity_count' && b.auto_activity) {
+    const rows = await sb.select(
+      'activity_logs',
+      `select=id&student_id=eq.${studentId}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
+    ).catch(() => [])
+    return rows.length >= (b.auto_value || 1)
+  }
+  return true   // 수동 뱃지 등 판단 불가 → 그대로 둠
+}
+
+app.post('/api/students/:id/logs/:logId/undo', async (c) => {
+  const id = c.req.param('id')
+  const logId = c.req.param('logId')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student } = result
+
+  const sb = makeSupabase(c.env)
+  const [log] = await sb.select<ActivityLogRow>(
+    'activity_logs',
+    `select=*&id=eq.${logId}&student_id=eq.${id}&limit=1`,
+  )
+  if (!log) return c.json({ error: '취소할 기록을 찾을 수 없습니다' }, 404)
+  if (log.type !== 'score') {
+    return c.json({ error: '점수 기록만 취소할 수 있어요' }, 400)
+  }
+  if (String(log.name || '').startsWith('↩')) {
+    return c.json({ error: '취소 기록은 다시 취소할 수 없어요' }, 400)
+  }
+
+  const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+  const delta = Math.trunc(Number(log.score) || 0)
+  const oldLevel = calcLevel(student.xp, levels).level
+  const newXp = Math.max(0, student.xp - delta)
+  const newLevel = calcLevel(newXp, levels).level
+
+  // (1) 기록 먼저 삭제 — 뱃지 활동 횟수를 다시 셀 때 이 삭제가 반영돼야 함
+  await sb.delete('activity_logs', `id=eq.${logId}`)
+
+  const patch: Record<string, any> = { xp: newXp }
+  const undoLogs: ActivityLogRow[] = []
+
+  // (2) 레벨이 내려갔다면 그 위 레벨에서 받은 스킬 회수 (이미 쓴 스킬은 그대로 둠)
+  const ownedNow: OwnedSkill[] = Array.isArray(student.owned_skills) ? [...student.owned_skills] : []
+  const removedSkills: string[] = []
+  if (newLevel < oldLevel) {
+    const kept = ownedNow.filter(sk => {
+      if (sk.level <= newLevel) return true
+      if (!isUntouchedSkill(sk)) return true
+      removedSkills.push(sk.pending ? `Lv.${sk.level} 보상 선택` : sk.name)
+      return false
+    })
+    if (removedSkills.length) patch.owned_skills = kept
+    // 레벨업 기록도 함께 정리
+    for (let lv = newLevel + 1; lv <= oldLevel; lv++) {
+      await sb.delete(
+        'activity_logs',
+        `student_id=eq.${id}&type=eq.level_up&name=eq.${encodeURIComponent(`레벨 ${lv} 달성`)}`,
+      ).catch(() => {})
+    }
+  }
+
+  // (3) 조건이 깨진 자동 뱃지 회수
+  const earned: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
+  const revokedBadges: { name: string; emoji: string }[] = []
+  if (earned.some(e => e.auto)) {
+    const defs = await sb.select<BadgeRow>(
+      'badges',
+      `select=*&class_id=eq.${student.class_id}`,
+    ).catch(() => [] as BadgeRow[])
+    const keptBadges: EarnedBadge[] = []
+    for (const eb of earned) {
+      const def = eb.auto ? defs.find(b => b.id === eb.badge_id) : null
+      if (!def || !def.auto_type) { keptBadges.push(eb); continue }
+      const stillMet = await autoBadgeStillMet(sb, id, def, newXp, newLevel)
+      if (stillMet) { keptBadges.push(eb); continue }
+      revokedBadges.push({ name: def.name, emoji: def.emoji })
+      // 획득 기록도 지워 활동 기록이 어긋나지 않게
+      await sb.delete(
+        'activity_logs',
+        `student_id=eq.${id}&type=eq.badge&name=eq.${encodeURIComponent(`뱃지 획득: ${def.emoji} ${def.name}`)}`,
+      ).catch(() => {})
+    }
+    if (revokedBadges.length) patch.badges = keptBadges
+  }
+
+  // (4) XP 자동 적립으로 줬던 코인 되돌리기 (직접 준 코인·쓴 코인은 건드리지 않음)
+  const coinRate = await loadCoinRate(sb, student.class_id)
+  const haveCoins = Number(student.coins) || 0
+  let takenCoins = 0
+  if (coinRate > 0 && delta > 0) {
+    const should = Math.floor(newXp / coinRate)
+    if (hasCoinsAuto(student)) {
+      const granted = Math.max(0, Math.trunc(Number(student.coins_auto) || 0))
+      takenCoins = Math.min(Math.max(0, granted - should), haveCoins)
+      if (takenCoins > 0) patch.coins_auto = granted - takenCoins
+    } else {
+      takenCoins = Math.min(Math.max(0, Math.floor(student.xp / coinRate) - should), haveCoins)
+    }
+    if (takenCoins > 0) {
+      patch.coins = haveCoins - takenCoins
+      undoLogs.push({
+        class_id: student.class_id,
+        student_id: student.id,
+        type: 'coin',
+        name: `코인 -${takenCoins} (점수 취소)`,
+        score: 0,
+      })
+    }
+  }
+
+  await sb.update('students', patch, `id=eq.${id}`, false)
+
+  // 되돌렸다는 사실 자체는 기록에 남긴다 (활동 이름이 달라 뱃지 횟수에는 안 잡힘)
+  undoLogs.unshift({
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'score',
+    name: `↩ 취소: ${log.name}`,
+    score: -delta,
+  })
+  await sb.insert('activity_logs', undoLogs, false)
+
+  return c.json({
+    success: true,
+    undone: { name: log.name, score: delta },
+    new_xp: newXp,
+    new_level: newLevel,
+    level_down: newLevel < oldLevel,
+    removed_skills: removedSkills,
+    revoked_badges: revokedBadges,
+    taken_coins: takenCoins,
+  })
 })
 
 // =================================================================
@@ -1616,11 +1843,14 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
   const body = await c.req.json<{ rewards?: number[]; coin_rate?: number }>().catch(() => ({} as any))
 
   const sb = makeSupabase(c.env)
-  // 기존 설정을 읽어와 병합 (rewards만 저장할 때 coin_rate가 날아가지 않도록)
+  // 기존 설정을 읽어와 병합 (한쪽만 저장할 때 다른 쪽이 날아가지 않도록)
   let current: { rewards: number[]; coin_rate?: number } = { rewards: DEFAULT_DRAW_REWARDS }
   try {
     const [cls] = await sb.select<ClassRow>('classes', `select=draw_config&id=eq.${classId}&limit=1`)
-    if (cls?.draw_config?.rewards?.length) current = { ...cls.draw_config }
+    if (cls?.draw_config) {
+      current = { ...cls.draw_config }
+      if (!current.rewards?.length) current.rewards = DEFAULT_DRAW_REWARDS
+    }
   } catch {
     return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
   }
@@ -1647,7 +1877,22 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
   } catch {
     return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
   }
-  return c.json({ success: true, rewards: current.rewards, coin_rate: current.coin_rate || 0 })
+
+  // 비율을 켜거나 바꿨으면 곧바로 정산 — 이미 쌓여 있던 XP만큼 밀린 코인을 채워준다.
+  // (이게 없으면 설정을 켜도 다음 점수를 줄 때까지 아무 일도 안 일어나 "안 되는" 것처럼 보임)
+  let settle: CoinSettleResult = { supported: true, students: 0, coins: 0 }
+  if (body.coin_rate !== undefined) {
+    settle = await settleCoinsForClass(sb, classId, current.coin_rate || 0)
+  }
+
+  return c.json({
+    success: true,
+    rewards: current.rewards,
+    coin_rate: current.coin_rate || 0,
+    coin_settled_students: settle.students,
+    coin_settled_coins: settle.coins,
+    coin_auto_supported: settle.supported,
+  })
 })
 
 app.post('/api/students/:id/draw', async (c) => {

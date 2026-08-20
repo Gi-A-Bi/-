@@ -1929,6 +1929,31 @@ async function renderDetail(id) {
         <div class="score-grid">${scoreBtns}</div>
       </div>
 
+      <!-- 최근 점수 기록 (잘못 누른 것 되돌리기) -->
+      ${(s.recent_logs || []).length ? `
+      <div class="section-card">
+        <div class="section-title">
+          <span>↩</span> 최근 점수 기록
+          <span class="count-pill">${(s.recent_logs || []).length}</span>
+        </div>
+        <div class="hint-text" style="margin-bottom:8px;">
+          실수로 누른 활동은 <b>취소</b>로 되돌릴 수 있어요.
+          XP는 물론 그 때문에 올라간 <b>뱃지 횟수·자동 뱃지·코인</b>까지 함께 되돌아가요.
+        </div>
+        <div class="recent-log-list">
+          ${(s.recent_logs || []).map(l => `
+            <div class="recent-log">
+              <span class="rl-emoji">${activityEmoji(l.name)}</span>
+              <div class="rl-mid">
+                <div class="rl-name">${escapeHtml(l.name)}</div>
+                <div class="rl-time">${formatTime(l.created_at)}</div>
+              </div>
+              <span class="log-delta ${l.score >= 0 ? 'delta-pos' : 'delta-neg'}">${l.score >= 0 ? '+' : ''}${l.score} XP</span>
+              <button class="rl-undo" data-undo-log="${l.id}" data-undo-name="${escapeHtml(l.name)}">취소</button>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
       <!-- 상점 -->
       <div class="section-card">
         <div class="section-title">
@@ -1987,6 +2012,9 @@ async function renderDetail(id) {
   document.getElementById('coin-minus').onclick = () => adjustCoins(s, -1)
   document.getElementById('coin-plus').onclick = () => adjustCoins(s, 1)
   document.getElementById('coin-custom').onclick = () => showCoinPrompt(s)
+  document.querySelectorAll('[data-undo-log]').forEach(btn => {
+    btn.onclick = () => undoScoreLog(s.id, btn.dataset.undoLog, btn.dataset.undoName)
+  })
   loadShopSection(s)
   document.getElementById('student-delete-btn').onclick = () => {
     const displayName = s.nickname ? `${s.nickname} (${s.name})` : s.name
@@ -2128,6 +2156,35 @@ async function addScore(studentId, name, delta) {
   }
 }
 
+// 잘못 준 점수 되돌리기 — XP뿐 아니라 뱃지 조건(활동 횟수)·자동 뱃지·코인까지 함께 취소된다.
+async function undoScoreLog(studentId, logId, activityName, onDone) {
+  showConfirm(
+    '점수 취소',
+    `'${activityName}' 기록을 취소할까요?\n올렸던 XP와 그로 인한 뱃지 횟수·자동 뱃지·코인도 함께 되돌아가요.`,
+    async () => {
+      try {
+        const res = await api(`/api/students/${studentId}/logs/${logId}/undo`, { method: 'POST' })
+        showToast(`'${res.undone.name}' 기록을 취소했어요`, 'success', '↩')
+        if (res.revoked_badges?.length) {
+          res.revoked_badges.forEach((b, i) => {
+            setTimeout(() => showToast(`뱃지 회수: ${b.emoji || '🏅'} ${b.name}`, 'warning', '↩'), 400 + i * 400)
+          })
+        }
+        if (res.removed_skills?.length) {
+          setTimeout(() => showToast(`레벨 ${res.new_level}(으)로 내려가 스킬 ${res.removed_skills.length}개를 회수했어요`, 'warning', '↩'), 700)
+        }
+        if (res.taken_coins > 0) {
+          setTimeout(() => showToast(`코인 −${res.taken_coins} 회수`, 'warning', '🪙'), 900)
+        }
+        if (onDone) await onDone()
+        else await renderDetail(studentId)
+      } catch (e) {
+        showToast(e.message, 'error')
+      }
+    },
+  )
+}
+
 async function adjustHp(studentId, delta) {
   try {
     await api(`/api/students/${studentId}/hp`, {
@@ -2212,6 +2269,11 @@ async function renderLogs() {
     const logHasImg = hasAvatarImage(logStudent)
     const logCls = logHasImg ? 'avatar-photo' : (l.avatar_emoji ? 'avatar-emoji' : '')
     const logBg = logHasImg ? '' : `background: linear-gradient(135deg, ${avatarColor(logStudent)}, ${avatarColor(logStudent)}cc);`
+    // 잘못 준 점수는 여기서도 되돌릴 수 있게 (취소 기록 자체는 다시 취소 불가)
+    const undoable = l.log_type === 'score' && !String(l.activity_name).startsWith('↩')
+    const undoHtml = undoable
+      ? `<button class="rl-undo log-undo" data-undo-log="${l.id}" data-undo-student="${l.student_id}" data-undo-name="${escapeHtml(l.activity_name)}">취소</button>`
+      : ''
     return `
       <div class="log-item">
         <div class="log-avatar ${logCls}" style="${logBg}">
@@ -2226,6 +2288,7 @@ async function renderLogs() {
           <div class="log-time">${formatTime(l.created_at)}</div>
         </div>
         ${deltaHtml}
+        ${undoHtml}
       </div>
     `
   }).join('')
@@ -2236,9 +2299,21 @@ async function renderLogs() {
         <span>📜</span> 활동 기록
         <span style="margin-left:auto; font-size:14px; color:var(--text-light); font-weight:normal;">${logs.length}건</span>
       </div>
+      <div class="hint-text" style="margin-bottom:8px;">
+        실수로 준 점수는 <b>취소</b>를 눌러 되돌릴 수 있어요 (XP·뱃지 횟수·자동 뱃지·코인 모두 복구).
+      </div>
       <div class="log-list">${items}</div>
     </div>
   `
+
+  main.querySelectorAll('[data-undo-log]').forEach(btn => {
+    btn.onclick = () => undoScoreLog(
+      btn.dataset.undoStudent,
+      btn.dataset.undoLog,
+      btn.dataset.undoName,
+      () => renderLogs(),
+    )
+  })
 }
 
 // ==============================
@@ -2528,6 +2603,15 @@ async function renderShopSettings() {
   const body = document.getElementById('settings-body')
   body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
 
+  // 서버에 실제로 저장된 값을 다시 읽어온다 (부팅 때 캐시한 값이 아니라 진짜 저장된 값을 보여주기 위해)
+  try {
+    const fresh = await api('/api/my-class')
+    if (fresh?.my_class?.draw_config) {
+      state.coinRate = Math.max(0, Math.trunc(Number(fresh.my_class.draw_config.coin_rate || 0)))
+      if (fresh.my_class.draw_config.rewards?.length) state.drawRewards = fresh.my_class.draw_config.rewards
+    }
+  } catch (e) { /* 실패해도 캐시값으로 그림 */ }
+
   let items = null
   let migrationNeeded = false
   try {
@@ -2575,8 +2659,10 @@ async function renderShopSettings() {
       <div class="hint-text" style="margin-bottom:8px;">
         누적 XP가 기준선을 넘을 때마다 <b>코인 1개</b>가 자동으로 들어가요.
         예: <b>10</b>으로 설정하면 XP 10, 20, 30…을 넘을 때마다 1코인.
-        <b>0</b>을 넣으면 자동 적립을 끄고 수동(−/＋)으로만 줍니다.
-        XP를 깎아도 이미 받은 코인은 뺏지 않아요.
+        <b>0</b>을 넣으면 자동 적립을 끄고 수동(−/＋)으로만 줍니다.<br/>
+        <b>저장</b>을 누르면 이미 쌓여 있던 XP 기준으로 <b>밀린 코인까지 한 번에 정산</b>돼요
+        (같은 XP로 두 번 주지는 않아요). XP를 깎아도 이미 받은 코인은 뺏지 않고,
+        점수를 <b>취소</b>했을 때만 그때 나간 코인이 되돌아가요.
       </div>
       <div class="draw-config-row">
         <span class="coin-rate-label">XP</span>
@@ -2601,12 +2687,24 @@ async function renderShopSettings() {
     const rate = Math.trunc(Number(document.getElementById('coin-rate').value) || 0)
     if (rate < 0) { showToast('0 이상을 입력해주세요', 'warning'); return }
     try {
-      await api(`/api/classes/${state.classId}/draw-config`, {
+      const res = await api(`/api/classes/${state.classId}/draw-config`, {
         method: 'PUT',
         body: JSON.stringify({ coin_rate: rate }),
       })
       state.coinRate = rate
       showToast(rate > 0 ? `XP ${rate}점당 1코인 자동 적립!` : '코인 자동 적립을 껐어요', 'success', '🪙')
+      if (res.coin_settled_coins > 0) {
+        setTimeout(() => showToast(
+          `밀린 코인 정산: ${res.coin_settled_students}명에게 ${res.coin_settled_coins}코인`,
+          'success', '🪙',
+        ), 500)
+      }
+      if (rate > 0 && res.coin_auto_supported === false) {
+        setTimeout(() => showToast(
+          '정확한 정산·되돌리기를 쓰려면 supabase_0007_coin_auto.sql 을 실행해주세요',
+          'warning', '🛠',
+        ), 900)
+      }
     } catch (e) {
       showToast(e.message, 'error')
     }

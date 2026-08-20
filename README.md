@@ -30,6 +30,8 @@
    ※ 새 테이블에 RLS가 자동으로 켜졌다면 `ALTER TABLE badges DISABLE ROW LEVEL SECURITY;` 도 실행 (다른 테이블과 동일하게 서버단 보안 사용).
 8. **Supabase SQL Editor에서** `supabase_0006_draw_team_shop.sql` 실행
    → 카드팩 뽑기(`classes.draw_config`), 모둠전(`students.team`), 상점(`students.coins`/`coupons` + `shop_items` 테이블) 추가. 안 돌리면 해당 기능에서만 안내 문구가 뜸.
+9. **Supabase SQL Editor에서** `supabase_0007_coin_auto.sql` 실행
+   → `students.coins_auto` 컬럼 추가 (XP 자동 적립 코인 정산용). 안 돌리면 코인 자동 적립이 "점수 줄 때 통과한 구간만" 지급되는 예전 방식으로만 동작하고, 밀린 코인 정산·점수 취소 시 코인 되돌리기가 되지 않음.
 
 ## 데이터 저장소
 
@@ -71,7 +73,8 @@
 | GET | `/api/students/:id` | 학생 상세 (skills + pending_choices) |
 | PUT | `/api/students/:id/profile` | 닉네임/아바타 |
 | DELETE | `/api/students/:id` | 학생 삭제 (로그도 함께) |
-| POST | `/api/students/:id/score` | XP 부여 + 자동 레벨업 + 보상 지급 |
+| POST | `/api/students/:id/score` | XP 부여 + 자동 레벨업 + 보상 지급 + 자동 뱃지/코인 |
+| POST | `/api/students/:id/logs/:logId/undo` | **점수 기록 취소(되돌리기)** — 잘못 누른 활동 1건을 없던 일로. XP 복구, 그 기록 때문에 올라간 레벨·(안 쓴)스킬 회수, 조건이 깨진 **자동 뱃지 회수**, XP 자동 적립으로 나갔던 **코인 회수**까지 함께 처리. `type='score'` 기록만 가능(취소 기록 자체는 불가) |
 | POST | `/api/students/:id/hp` | HP ±1 |
 | POST | `/api/students/:id/skills/:uid/use` | 보유 스킬 사용 (회권은 1회 차감, 상시는 소모 안 함) |
 | POST | `/api/students/:id/choices/:uid/resolve` | A/B 보상 선택 |
@@ -99,6 +102,26 @@
 - 패시브: Lv1~2 "도서 대여 / 1인 1역 자격", Lv3+ "나만의 닉네임"
 - HP 최대 3 (하트 모양)
 - Lv5/10/20은 A/B 선택형 보상
+
+### 뱃지 조건 되돌리기 (2026-08)
+
+뱃지 자동 조건(예: "친구돕기 20회")은 `activity_logs` 의 점수 기록 개수로 센다.
+그래서 실수로 누른 활동은 **XP를 −로 상쇄해도 횟수는 그대로 남아** 뱃지가 잘못 나가는 문제가 있었다.
+이제 **학생 상세 → ↩ 최근 점수 기록** 과 **활동 기록 화면**에서 해당 기록의 `취소` 버튼으로 되돌린다.
+취소는 기록 자체를 지우므로 뱃지 진행도(19/20 → 18/20)도 함께 내려가고,
+조건이 깨진 **자동** 뱃지는 회수된다(교사가 직접 준 뱃지는 그대로 유지).
+
+### 코인 XP 자동 적립 (2026-08)
+
+`classes.draw_config.coin_rate` (XP N점당 1코인, 0=끄기)로 동작하며,
+지급 기준은 **누적 XP**: 학생이 받았어야 할 코인 수 `floor(xp / rate)` 에서
+이미 자동으로 준 수 `students.coins_auto` 를 뺀 만큼만 채워준다.
+
+- 설정에서 **저장**을 누르면 그 자리에서 학급 전체를 정산 — 이미 XP가 쌓여 있던 학생도 밀린 코인을 바로 받는다
+  (예전에는 비율을 켜도 "다음 점수를 줄 때부터" 조금씩만 붙어 안 되는 것처럼 보였다)
+- 같은 XP 구간에서 두 번 지급되지 않음 (저장을 여러 번 눌러도 안전)
+- XP를 깎아도 이미 받은 코인은 뺏지 않음. 단 **점수 취소**는 그때 나간 코인을 되돌린다
+- `coins_auto` 컬럼(`supabase_0007_coin_auto.sql`)이 없으면 예전 방식(점수 줄 때 통과한 구간만 지급)으로 안전하게 동작
 
 ## UI 디자인
 

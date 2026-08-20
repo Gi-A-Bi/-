@@ -78,6 +78,7 @@ export interface StudentRow {
   badges?: EarnedBadge[]
   team?: string | null      // 모둠 이름 (모둠전)
   coins?: number            // 상점용 코인
+  coins_auto?: number       // 그중 XP 자동 적립으로 지급한 누적 수 (중복 지급 방지용)
   coupons?: CouponItem[]    // 상점에서 산 쿠폰함
   created_at?: string
 }
