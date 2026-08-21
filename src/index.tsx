@@ -396,6 +396,14 @@ app.get('/api/classes/:classId/students', async (c) => {
     sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
   ])
 
+  // 코인 자동 적립이 켜져 있으면 밀린 만큼 여기서 채워준다.
+  // (설정에서 '저장'을 다시 누르지 않아도 학급을 열기만 하면 반영되게 — 이미 다 받은
+  //  상태면 아무 것도 쓰지 않으므로 평소에는 추가 부하가 없다)
+  const rate = Math.max(0, Math.trunc(Number(owned.draw_config?.coin_rate || 0)))
+  if (rate > 0) {
+    await settleCoinsForStudents(sb, classId, rate, students).catch(() => ({ students: 0, coins: 0 }))
+  }
+
   const enriched = students.map(s => enrichStudent(s, levels))
   return c.json(enriched)
 })
@@ -519,6 +527,13 @@ app.get('/api/students/:id', async (c) => {
 
   const sb = makeSupabase(c.env)
   const levels = await sb.select<LevelRow>('levels', 'select=*&order=level.asc')
+
+  // 목록과 같은 이유로, 상세를 열 때도 밀린 코인이 있으면 채워준다
+  const coinRateHere = Math.max(0, Math.trunc(Number(result.cls?.draw_config?.coin_rate || 0)))
+  if (coinRateHere > 0) {
+    await settleCoinsForStudents(sb, student.class_id, coinRateHere, [student]).catch(() => ({ students: 0, coins: 0 }))
+  }
+
   const e = enrichStudent(student, levels)
 
   const owned = e.owned_skills
@@ -823,20 +838,35 @@ async function settleCoinsForClass(sb: any, classId: string, rate: number): Prom
     return { supported: false, students: 0, coins: 0 }
   }
   if (rate <= 0) return { supported: true, students: 0, coins: 0 }
+  const r = await settleCoinsForStudents(sb, classId, rate, rows)
+  return { supported: true, ...r }
+}
+
+// 이미 읽어온 학생 row 들을 그 자리에서 정산. row 의 coins/coins_auto 도 함께 갱신해서
+// 호출자가 방금 지급된 코인을 그대로 응답에 실어 보낼 수 있게 한다.
+// coins_auto 컬럼이 없으면(0007 전) 아무것도 하지 않음 — 중복 지급 위험이 있어서.
+async function settleCoinsForStudents(
+  sb: any, classId: string, rate: number, rows: StudentRow[],
+): Promise<{ students: number; coins: number }> {
+  if (rate <= 0) return { students: 0, coins: 0 }
 
   let students = 0
   let coins = 0
   const logs: ActivityLogRow[] = []
   for (const st of rows) {
+    if (!hasCoinsAuto(st)) continue
     const granted = Math.max(0, Math.trunc(Number(st.coins_auto) || 0))
     const add = Math.floor((Number(st.xp) || 0) / rate) - granted
     if (add <= 0) continue
+    const newCoins = (Number(st.coins) || 0) + add
     await sb.update(
       'students',
-      { coins: (Number(st.coins) || 0) + add, coins_auto: granted + add },
+      { coins: newCoins, coins_auto: granted + add },
       `id=eq.${st.id}`,
       false,
     )
+    st.coins = newCoins
+    st.coins_auto = granted + add
     students++
     coins += add
     logs.push({
@@ -848,7 +878,7 @@ async function settleCoinsForClass(sb: any, classId: string, rate: number): Prom
     })
   }
   if (logs.length) await sb.insert('activity_logs', logs, false)
-  return { supported: true, students, coins }
+  return { students, coins }
 }
 
 // 학급의 코인 자동 적립 비율 로드 (설정 없거나 마이그레이션 전이면 0 = 끔)
@@ -1892,6 +1922,27 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
     coin_settled_students: settle.students,
     coin_settled_coins: settle.coins,
     coin_auto_supported: settle.supported,
+  })
+})
+
+// 코인 자동 적립이 실제로 동작할 수 있는 상태인지 (설정 화면에서 안내용)
+//  - rate: 저장된 비율 (0 = 꺼짐)
+//  - ready: students.coins_auto 컬럼이 있는지 (없으면 정산·되돌리기가 안 됨)
+app.get('/api/classes/:classId/coin-status', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  let ready = true
+  try {
+    await sb.select('students', `select=coins_auto&class_id=eq.${classId}&limit=1`)
+  } catch {
+    ready = false
+  }
+  return c.json({
+    rate: Math.max(0, Math.trunc(Number(owned.draw_config?.coin_rate || 0))),
+    ready,
   })
 })
 
