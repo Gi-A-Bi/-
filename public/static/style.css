@@ -83,6 +83,14 @@ html, body {
   position: relative;
 }
 
+/* overflow-x: hidden 은 스크롤 컨테이너를 만들어 버려서 자식의 position: sticky 가
+   동작하지 않는다(넓은 화면의 우측 상세 패널이 안 따라오던 원인).
+   clip 은 잘라내기만 하고 스크롤 컨테이너를 만들지 않으므로 가로 스크롤 방지 효과는
+   그대로 두면서 sticky 를 살릴 수 있다. 지원하지 않는 구형 브라우저는 위 hidden 그대로. */
+@supports (overflow: clip) {
+  html, body { overflow-x: clip; }
+}
+
 /* 미세한 노이즈/별 텍스처 (양피지+밤하늘 느낌) */
 body::before {
   content: '';
@@ -3105,6 +3113,9 @@ button {
     overflow-x: hidden;
     border-radius: 18px;
   }
+  /* sticky 는 부모(.split-view) 박스 안에서만 따라온다. 목록 화면에서만 #app 아래 여백을
+     없애 두면, 페이지 맨 아래까지 내려가도 상세 패널 윗부분이 헤더에 가리지 않는다. */
+  #app:has(.list-view) { padding-bottom: 0; }
   .detail-pane .view-container { padding: 0; max-width: none; margin: 0; }
   .detail-empty {
     min-height: 340px;
@@ -3119,6 +3130,11 @@ button {
     border-radius: 18px;
     padding: 30px;
   }
+}
+
+/* 아주 넓은 화면에서는 우측 상세를 조금 더 넓게 (좌측 카드 열 수는 그대로 유지됨) */
+@media (min-width: 1180px) {
+  .split-view { grid-template-columns: minmax(0, 1fr) 440px; }
 }
 
 /* ==============================
