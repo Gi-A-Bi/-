@@ -2604,11 +2604,19 @@ async function renderShopSettings() {
   body.innerHTML = '<div class="hint-text">불러오는 중...</div>'
 
   // 서버에 실제로 저장된 값을 다시 읽어온다 (부팅 때 캐시한 값이 아니라 진짜 저장된 값을 보여주기 위해)
+  let coinReady = true
   try {
-    const fresh = await api('/api/my-class')
+    const [fresh, coinStatus] = await Promise.all([
+      api('/api/my-class'),
+      api(`/api/classes/${state.classId}/coin-status`).catch(() => null),
+    ])
     if (fresh?.my_class?.draw_config) {
       state.coinRate = Math.max(0, Math.trunc(Number(fresh.my_class.draw_config.coin_rate || 0)))
       if (fresh.my_class.draw_config.rewards?.length) state.drawRewards = fresh.my_class.draw_config.rewards
+    }
+    if (coinStatus) {
+      state.coinRate = coinStatus.rate
+      coinReady = coinStatus.ready !== false
     }
   } catch (e) { /* 실패해도 캐시값으로 그림 */ }
 
@@ -2664,6 +2672,12 @@ async function renderShopSettings() {
         (같은 XP로 두 번 주지는 않아요). XP를 깎아도 이미 받은 코인은 뺏지 않고,
         점수를 <b>취소</b>했을 때만 그때 나간 코인이 되돌아가요.
       </div>
+      ${coinReady ? '' : `
+        <div class="coin-setup-warn">
+          ⚠️ 아직 데이터베이스 준비가 안 됐어요.<br/>
+          Supabase → <b>SQL Editor</b> 에서 저장소의 <b>supabase_0007_coin_auto.sql</b> 을 실행해주세요.<br/>
+          그전까지는 <b>이미 쌓인 XP에 대한 정산</b>과 <b>점수 취소 시 코인 되돌리기</b>가 동작하지 않아요.
+        </div>`}
       <div class="draw-config-row">
         <span class="coin-rate-label">XP</span>
         <input id="coin-rate" class="account-input" type="number" min="0" style="width:110px;" value="${state.coinRate}" placeholder="예: 10" />
