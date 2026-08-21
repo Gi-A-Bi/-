@@ -1200,6 +1200,9 @@ function openStudent(id, cardEl) {
     const card = cardEl || main.querySelector(`.tcard[data-id="${id}"]`)
     if (card) card.classList.add('selected')
     const pane = document.getElementById('detail-pane')
+    // 다른 학생을 열 때 이전 학생을 보던 스크롤 위치가 남지 않도록 맨 위로
+    const paneScroller = pane.closest('.split-right')
+    if (paneScroller) paneScroller.scrollTop = 0
     pane.innerHTML = '<div class="hint-text" style="padding:24px;">불러오는 중...</div>'
     renderDetail(id).catch(e => { pane.innerHTML = `<div class="hint-text" style="padding:24px;">오류: ${escapeHtml(e.message)}</div>` })
   } else {
