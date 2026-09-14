@@ -4,7 +4,10 @@
 
 export type Bindings = {
   SUPABASE_URL: string
+  /** anon 키 — 브라우저로 전달되어 로그인(Auth)에만 쓰인다. RLS가 켜져 있어야 안전하다. */
   SUPABASE_KEY: string
+  /** 서버 전용 키 — Worker의 REST 호출에만 쓴다. 절대 브라우저로 내보내지 말 것. */
+  SUPABASE_SERVICE_KEY: string
   DEFAULT_CLASS_ID: string
 }
 
