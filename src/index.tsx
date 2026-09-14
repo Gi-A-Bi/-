@@ -70,6 +70,8 @@ app.get('/', (c) => {
 
       <footer class="app-footer">
         개발자: 김민성 · 오류·문의: <a href="mailto:hwjjlover@gmail.com">hwjjlover@gmail.com</a>
+        <br />
+        <a href="/privacy.html">개인정보처리방침</a>
       </footer>
 
       <div id="toast-container"></div>
