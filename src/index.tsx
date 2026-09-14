@@ -71,7 +71,8 @@ app.get('/', (c) => {
       <footer class="app-footer">
         개발자: 김민성 · 오류·문의: <a href="mailto:healthydol@gmail.com">healthydol@gmail.com</a>
         <br />
-        <a href="/privacy.html">개인정보처리방침</a>
+        {/* Pages가 /privacy.html 을 /privacy 로 308 리다이렉트하므로 최종 주소를 쓴다 */}
+        <a href="/privacy">개인정보처리방침</a>
       </footer>
 
       <div id="toast-container"></div>
