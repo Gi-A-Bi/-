@@ -25,9 +25,12 @@ export interface SupabaseClient {
 
 export function makeSupabase(env: Bindings): SupabaseClient {
   const base = env.SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1'
+  // 서버 전용 키로 호출한다. 브라우저에 내려가는 anon 키(SUPABASE_KEY)는 RLS에 막혀
+  // 테이블을 읽을 수 없고, 어떤 교사가 어떤 학급에 접근 가능한지는 이 파일을 호출하는
+  // 라우트(loadOwnedClass 등)가 판단한다.
   const baseHeaders = {
-    apikey: env.SUPABASE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_KEY}`,
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
     'Content-Type': 'application/json',
   }
 
