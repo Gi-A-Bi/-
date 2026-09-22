@@ -2867,7 +2867,20 @@ button {
 }
 
 .tc-info { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 26px 12px 12px; }
-.tc-rarity { font-size: 12px; letter-spacing: 2px; font-weight: 900; margin-bottom: 2px; }
+/* 획득 뱃지 줄 (별 대신) — 딴 뱃지만 이모지로 쌓임 */
+.tc-badges { display: flex; flex-wrap: nowrap; align-items: center; gap: 3px; margin-bottom: 4px; overflow: hidden; }
+.tc-bd {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 50%; font-size: 13px; line-height: 1;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.08));
+  border: 1.5px solid rgba(255,255,255,.55);
+  box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.tc-bd-more {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 900; color: #fff; padding: 2px 6px; border-radius: 10px;
+  background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35);
+  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
 .tc-name {
   font-size: 16px; font-weight: 900; color: #fff; letter-spacing: -0.3px;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
@@ -2885,14 +2898,12 @@ button {
 /* ---- 브론즈 ---- */
 .tcard.rank-bronze { border: 6px solid #96602f; box-shadow: 0 10px 18px rgba(0,0,0,.4); }
 .tcard.rank-bronze .tc-info { background: linear-gradient(to top, rgba(38,22,8,.94), rgba(38,22,8,.5) 46%, transparent); }
-.tcard.rank-bronze .tc-rarity { color: #e8b488; }
 .tcard.rank-bronze .tc-badge { background: linear-gradient(180deg, #efb98a, #b06a34); color: #3a1e08; }
 
 /* ---- 실버 ---- */
 .tcard.rank-silver { border: 7px solid; border-image: linear-gradient(155deg, #ffffff, #c2cdda, #8f9db0, #e6edf4) 1; box-shadow: 0 10px 18px rgba(0,0,0,.4); }
 .tcard.rank-silver .tc-foil { opacity: .55; background: linear-gradient(125deg, transparent 38%, rgba(225,238,255,.55) 50%, transparent 63%); }
 .tcard.rank-silver .tc-info { background: linear-gradient(to top, rgba(20,30,42,.94), rgba(20,30,42,.5) 46%, transparent); }
-.tcard.rank-silver .tc-rarity { color: #e3edf7; }
 .tcard.rank-silver .tc-badge { background: linear-gradient(180deg, #f4f7fb, #b7c3d0); color: #26303c; }
 
 /* ---- 골드 ---- */
@@ -2900,7 +2911,6 @@ button {
 .tcard.rank-gold .tc-foil { opacity: .6; background: linear-gradient(120deg, transparent 30%, rgba(255,224,130,.6) 48%, transparent 64%); }
 .tcard.rank-gold .tc-corner { opacity: 1; color: #fff3c0; filter: drop-shadow(0 0 3px rgba(255,210,90,.9)); }
 .tcard.rank-gold .tc-info { background: linear-gradient(to top, rgba(48,32,4,.94), rgba(48,32,4,.5) 46%, transparent); }
-.tcard.rank-gold .tc-rarity { color: #ffd86b; text-shadow: 0 0 8px rgba(255,200,60,.7); }
 .tcard.rank-gold .tc-badge { background: linear-gradient(180deg, #ffe89a, #f3b93c); color: #5a3b00; }
 
 /* ---- 다이아 (무지개 홀로그램) ---- */
@@ -2916,7 +2926,6 @@ button {
 }
 .tcard.rank-diamond .tc-corner { opacity: 1; color: #eafcff; filter: drop-shadow(0 0 4px #7df9ff); }
 .tcard.rank-diamond .tc-info { background: linear-gradient(to top, rgba(14,10,34,.94), rgba(14,10,34,.5) 46%, transparent); }
-.tcard.rank-diamond .tc-rarity { background: linear-gradient(90deg, #ff8ad4, #8ad4ff, #c8ffca, #ffe08a); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .tcard.rank-diamond .tc-badge { background: linear-gradient(120deg, #a5f3fc, #f0abfc, #fde68a); color: #20143a; }
 
 
