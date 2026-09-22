@@ -407,7 +407,24 @@ app.get('/api/classes/:classId/students', async (c) => {
     await settleCoinsForStudents(sb, classId, rate, students).catch(() => ({ students: 0, coins: 0 }))
   }
 
-  const enriched = students.map(s => enrichStudent(s, levels))
+  // 획득 뱃지 — 카드에 뱃지 이모지를 그릴 수 있게 정의(이름/이모지)와 합쳐서 내려줌.
+  // (badges 테이블이 아직 없으면 조용히 빈 목록)
+  const badgeDefs = await sb.select<BadgeRow>(
+    'badges',
+    `select=id,name,emoji&class_id=eq.${classId}`,
+  ).catch(() => [] as BadgeRow[])
+  const badgeById = new Map(badgeDefs.map(b => [b.id, b]))
+
+  const enriched = students.map(s => {
+    const e = enrichStudent(s, levels)
+    const earned_badges = (Array.isArray(s.badges) ? s.badges : [])
+      .map((eb: EarnedBadge) => {
+        const d = badgeById.get(eb.badge_id)
+        return d ? { badge_id: eb.badge_id, name: d.name, emoji: d.emoji, awarded_at: eb.awarded_at } : null
+      })
+      .filter(Boolean)
+    return { ...e, earned_badges }
+  })
   return c.json(enriched)
 })
 

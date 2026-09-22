@@ -966,9 +966,15 @@ async function navigate(view, params = {}) {
 // ==============================
 // 화면 1: 학생 목록
 // ==============================
-// 등급별 희귀도 별
-function rankStars(rank) {
-  return ({ bronze: '★', silver: '★★', gold: '★★★', diamond: '✦✦✦✦' })[rank] || '★'
+// 획득한 뱃지 줄 — 등급과 상관없이 실제로 딴 뱃지만 이모지로 쌓인다 (없으면 아무것도 안 그림)
+const CARD_BADGE_MAX = 6
+function cardBadgesHtml(s) {
+  const list = Array.isArray(s.earned_badges) ? s.earned_badges : []
+  if (!list.length) return ''
+  const shown = list.slice(0, CARD_BADGE_MAX).map(b =>
+    `<span class="tc-bd" title="${escapeHtml(b.name || '')}">${b.emoji || '🏅'}</span>`).join('')
+  const more = list.length > CARD_BADGE_MAX ? `<span class="tc-bd-more">+${list.length - CARD_BADGE_MAX}</span>` : ''
+  return `<div class="tc-badges" title="획득한 뱃지 ${list.length}개">${shown}${more}</div>`
 }
 // HP 하트 — HP 개수만큼 빨간 하트 (HP가 깎이면 하트 수도 줄어듦)
 function hpHearts(hp, max = 3) {
@@ -996,7 +1002,7 @@ function cardHtml(s) {
       <div class="tc-lv">Lv.${s.level}</div>
       <span class="tc-check">✓</span>
       <div class="tc-info">
-        <div class="tc-rarity">${rankStars(s.rank)}</div>
+        ${cardBadgesHtml(s)}
         <div class="tc-name">${name}</div>
         <div class="tc-badge">${rank.icon} ${rank.label}</div>
       </div>
@@ -2084,6 +2090,28 @@ async function renderDetail(id) {
         () => reselectSkill(id, uid))
     })
   })
+
+  // 분할 화면이면 왼쪽 목록의 카드도 최신 상태(뱃지·레벨·HP)로 바로 갱신
+  syncListCard(s)
+}
+
+// 목록 화면의 학생 카드 한 장을 상세 데이터로 다시 그림 (뱃지 획득/회수가 카드에 즉시 반영되도록)
+function syncListCard(s) {
+  const card = document.querySelector(`#main-view .tcard[data-id="${s.id}"]`)
+  if (!card) return
+  const idx = state.students.findIndex(x => x.id === s.id)
+  if (idx >= 0) state.students[idx] = { ...state.students[idx], ...s }
+  const tmp = document.createElement('div')
+  tmp.innerHTML = cardHtml(s)
+  const fresh = tmp.firstElementChild
+  if (!fresh) return
+  if (card.classList.contains('selected')) fresh.classList.add('selected')
+  if (card.classList.contains('msel')) fresh.classList.add('msel')
+  fresh.addEventListener('click', () => {
+    if (state.multiSelect) toggleCardSelect(fresh.dataset.id)
+    else openStudent(fresh.dataset.id, fresh)
+  })
+  card.replaceWith(fresh)
 }
 
 async function restoreSkill(studentId, key) {
