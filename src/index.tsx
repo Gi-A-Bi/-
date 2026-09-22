@@ -643,6 +643,9 @@ app.get('/api/students/:id', async (c) => {
     ...e, skills, pending_choices, used_list: usedList,
     earned_badges: earnedBadges, badge_progress: badgeProgress,
     recent_logs: recentLogs,
+    // 카드팩 뽑기권 — 상점에서 사야 생기고, 뽑기 1회에 1개 소비
+    draw_packs: unusedDrawPacks(student).length,
+    pack_price: packPriceOf(result.cls?.draw_config),
   })
 })
 
@@ -1126,6 +1129,20 @@ app.post('/api/students/:id/logs/:logId/undo', async (c) => {
     }
   }
 
+  // (5) 카드팩 뽑기 기록을 취소했다면, 그때 쓴 카드팩(뽑기권)도 되돌려준다
+  let restoredPack = false
+  if (String(log.name || '') === DRAW_ACTIVITY_NAME) {
+    const coupons: CouponItem[] = Array.isArray(student.coupons) ? [...student.coupons] : []
+    const usedPacks = coupons
+      .filter(cp => cp.kind === 'draw' && cp.used_at)
+      .sort((a, b) => String(b.used_at).localeCompare(String(a.used_at)))
+    if (usedPacks[0]) {
+      usedPacks[0].used_at = null
+      patch.coupons = coupons
+      restoredPack = true
+    }
+  }
+
   await sb.update('students', patch, `id=eq.${id}`, false)
 
   // 되돌렸다는 사실 자체는 기록에 남긴다 (활동 이름이 달라 뱃지 횟수에는 안 잡힘)
@@ -1147,6 +1164,7 @@ app.post('/api/students/:id/logs/:logId/undo', async (c) => {
     removed_skills: removedSkills,
     revoked_badges: revokedBadges,
     taken_coins: takenCoins,
+    restored_pack: restoredPack,
   })
 })
 
@@ -1884,17 +1902,28 @@ app.delete('/api/students/:id/badges/:badgeId', async (c) => {
 // =================================================================
 const MIGRATION_0006_HINT = '데이터베이스 준비가 필요해요. Supabase SQL Editor에서 supabase_0006_draw_team_shop.sql 을 실행해주세요.'
 const DEFAULT_DRAW_REWARDS = [20, 40, 60, 80, 100]
+// 카드팩(뽑기권) 기본 가격 — 상점에서 코인으로 사야 뽑기를 할 수 있다
+const DEFAULT_PACK_PRICE = 5
+const DRAW_PACK_ITEM_ID = 'draw_pack'
+const DRAW_ACTIVITY_NAME = '🎁 카드팩 뽑기'
+function packPriceOf(cfg: ClassRow['draw_config'] | undefined): number {
+  const v = Math.trunc(Number(cfg?.pack_price))
+  return Number.isFinite(v) && v >= 1 ? v : DEFAULT_PACK_PRICE
+}
+function unusedDrawPacks(student: StudentRow): CouponItem[] {
+  return (Array.isArray(student.coupons) ? student.coupons : []).filter(cp => cp.kind === 'draw' && !cp.used_at)
+}
 
 app.put('/api/classes/:classId/draw-config', async (c) => {
   const classId = c.req.param('classId')
   const owned = await loadOwnedClass(c, classId)
   if (owned instanceof Response) return owned
 
-  const body = await c.req.json<{ rewards?: number[]; coin_rate?: number }>().catch(() => ({} as any))
+  const body = await c.req.json<{ rewards?: number[]; coin_rate?: number; pack_price?: number }>().catch(() => ({} as any))
 
   const sb = makeSupabase(c.env)
   // 기존 설정을 읽어와 병합 (한쪽만 저장할 때 다른 쪽이 날아가지 않도록)
-  let current: { rewards: number[]; coin_rate?: number } = { rewards: DEFAULT_DRAW_REWARDS }
+  let current: { rewards: number[]; coin_rate?: number; pack_price?: number } = { rewards: DEFAULT_DRAW_REWARDS }
   try {
     const [cls] = await sb.select<ClassRow>('classes', `select=draw_config&id=eq.${classId}&limit=1`)
     if (cls?.draw_config) {
@@ -1920,6 +1949,14 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
       return c.json({ error: '코인 비율은 0(끄기) ~ 100000 사이여야 해요' }, 400)
     }
     current.coin_rate = rate
+  }
+
+  if (body.pack_price !== undefined) {
+    const price = Math.trunc(Number(body.pack_price))
+    if (!Number.isFinite(price) || price < 1 || price > 100000) {
+      return c.json({ error: '카드팩 가격은 1 ~ 100000 코인 사이여야 해요' }, 400)
+    }
+    current.pack_price = price
   }
 
   try {
@@ -1972,6 +2009,11 @@ app.post('/api/students/:id/draw', async (c) => {
   if (result instanceof Response) return result
   const { student } = result
 
+  // 뽑기권(상점에서 산 카드팩)이 있어야만 뽑을 수 있다 — 한 번 뽑을 때마다 1개 소비
+  const packs = unusedDrawPacks(student)
+  if (!packs.length) {
+    return c.json({ error: '카드팩이 없어요. 상점에서 🎁 카드팩을 먼저 구매해주세요', code: 'no_draw_pack' }, 400)
+  }
   const sb = makeSupabase(c.env)
   const [cls] = await sb.select<ClassRow>('classes', `select=*&id=eq.${student.class_id}&limit=1`)
   const rewards = (cls?.draw_config?.rewards && cls.draw_config.rewards.length)
@@ -1980,16 +2022,27 @@ app.post('/api/students/:id/draw', async (c) => {
   const reward = rewards[Math.floor(Math.random() * rewards.length)]
   const coinRate = Math.max(0, Math.trunc(Number(cls?.draw_config?.coin_rate || 0)))
 
+  // 가장 먼저 산 카드팩부터 소비 (used_at 기록만 남기고 삭제하지 않음 → 점수 취소 시 되돌릴 수 있게)
+  const coupons: CouponItem[] = [...(student.coupons as CouponItem[])]
+  const pack = coupons.find(cp => cp.uid === packs[0].uid)!
+  pack.used_at = new Date().toISOString()
+  try {
+    await sb.update('students', { coupons }, `id=eq.${id}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+
   const [levels, autoBadges] = await Promise.all([
     sb.select<LevelRow>('levels', 'select=*&order=level.asc'),
     loadAutoBadges(sb, student.class_id),
   ])
-  const r = await applyScoreToStudent(sb, levels, student, '🎁 카드팩 뽑기', reward, autoBadges, coinRate)
+  const r = await applyScoreToStudent(sb, levels, student, DRAW_ACTIVITY_NAME, reward, autoBadges, coinRate)
   await sb.insert('activity_logs', r.logs, false)
 
   return c.json({
     success: true,
     reward,
+    draw_packs_left: packs.length - 1,
     new_xp: r.newXp,
     new_level: r.newLevel,
     leveled_up: r.newLevel > r.oldLevel,
@@ -2132,6 +2185,50 @@ app.delete('/api/classes/:classId/shop/:id', async (c) => {
 })
 
 // 구매 — 코인 차감 + 쿠폰함에 추가
+// 카드팩(뽑기권) 구매 — 상점의 기본 상품. 가격은 설정 → 뽑기·상점의 draw_config.pack_price
+app.post('/api/students/:id/purchase-pack', async (c) => {
+  const id = c.req.param('id')
+  const result = await loadOwnedStudent(c, id)
+  if (result instanceof Response) return result
+  const { student, cls } = result
+
+  const price = packPriceOf(cls?.draw_config)
+  const coins = Number(student.coins) || 0
+  if (coins < price) {
+    return c.json({ error: `코인이 부족해요 (보유 ${coins} / 필요 ${price})` }, 400)
+  }
+
+  const coupons: CouponItem[] = Array.isArray(student.coupons) ? [...student.coupons] : []
+  coupons.push({
+    uid: shortUid(),
+    item_id: DRAW_PACK_ITEM_ID,
+    kind: 'draw',
+    name: '카드팩',
+    emoji: '🎁',
+    price,
+    bought_at: new Date().toISOString(),
+  })
+  const sb = makeSupabase(c.env)
+  try {
+    await sb.update('students', { coins: coins - price, coupons }, `id=eq.${id}`, false)
+  } catch {
+    return c.json({ error: MIGRATION_0006_HINT, code: 'no_migration_0006' }, 500)
+  }
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'purchase',
+    name: `구매: 🎁 카드팩 (${price}코인)`,
+    score: 0,
+  }], false)
+  return c.json({
+    success: true,
+    coins: coins - price,
+    coupons,
+    draw_packs: coupons.filter(cp => cp.kind === 'draw' && !cp.used_at).length,
+  })
+})
+
 app.post('/api/students/:id/purchase/:itemId', async (c) => {
   const id = c.req.param('id')
   const itemId = c.req.param('itemId')
@@ -2183,6 +2280,7 @@ app.post('/api/students/:id/coupons/:uid/use', async (c) => {
   const coupons: CouponItem[] = Array.isArray(student.coupons) ? [...student.coupons] : []
   const target = coupons.find(cp => cp.uid === uid && !cp.used_at)
   if (!target) return c.json({ error: '사용할 수 있는 쿠폰이 없습니다' }, 404)
+  if (target.kind === 'draw') return c.json({ error: '카드팩은 🎁 카드팩 뽑기 버튼으로 사용해요' }, 400)
   target.used_at = new Date().toISOString()
 
   const sb = makeSupabase(c.env)

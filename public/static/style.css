@@ -3605,6 +3605,18 @@ button {
   letter-spacing: 2px;
 }
 .draw-open-btn { margin-left: auto; }
+.draw-open-btn.no-pack { opacity: 0.5; filter: grayscale(0.6); }
+.pack-count {
+  display: inline-block; margin-left: 2px; padding: 1px 6px; border-radius: 999px;
+  font-size: 11px; font-weight: 900; line-height: 1.4;
+  background: rgba(0, 0, 0, 0.35); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.shop-item.shop-pack {
+  border-color: rgba(243, 199, 97, 0.7);
+  background: linear-gradient(160deg, rgba(243, 199, 97, 0.22), rgba(243, 199, 97, 0.06));
+  box-shadow: 0 0 0 1px rgba(243, 199, 97, 0.25), 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+.shop-item.shop-pack .si-name .pack-count { background: rgba(243, 199, 97, 0.35); color: #3a2700; border-color: transparent; }
 
 /* --- 뱃지 진행도 --- */
 .badge-progress-title {

@@ -27,7 +27,8 @@ export interface ClassRow {
   // 게임 설정 (교사가 설정에서 수정)
   //  - rewards: 카드팩 뽑기 보상 XP 목록
   //  - coin_rate: XP 몇 점당 코인 1개 자동 지급 (0 또는 없음 = 끄기)
-  draw_config?: { rewards: number[]; coin_rate?: number }
+  //  - pack_price: 상점에서 카드팩(뽑기권) 1개를 사는 데 드는 코인 (없으면 기본값)
+  draw_config?: { rewards: number[]; coin_rate?: number; pack_price?: number }
   created_at?: string
 }
 
@@ -89,7 +90,8 @@ export interface StudentRow {
 // 상점에서 구매한 쿠폰 (students.coupons JSON 배열의 원소)
 export interface CouponItem {
   uid: string
-  item_id: string
+  item_id: string          // 상점 상품 id, 카드팩(뽑기권)은 'draw_pack'
+  kind?: 'draw'            // 'draw' = 카드팩 뽑기권 (뽑기 버튼으로 소비, 쿠폰함에는 안 보임)
   name: string
   emoji: string
   price: number

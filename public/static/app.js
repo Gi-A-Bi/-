@@ -16,6 +16,7 @@ const state = {
   badges: [],               // 뱃지 정의 캐시 (설정에서 수정 시 비움)
   shopItems: [],            // 상점 상품 캐시 (설정에서 수정 시 비움)
   drawRewards: [20, 40, 60, 80, 100],   // 카드팩 뽑기 보상 XP (학급 설정)
+  packPrice: 5,             // 카드팩(뽑기권) 가격 코인 (학급 설정, 상점에서 구매해야 뽑기 가능)
   coinRate: 0,              // XP 몇 점당 코인 1개 자동 지급 (0 = 끄기)
   settingsTab: 'activities',
   booted: false,
@@ -283,6 +284,7 @@ async function bootstrap() {
         state.drawRewards = data.my_class.draw_config.rewards
       }
       state.coinRate = Math.max(0, Math.trunc(Number(data.my_class.draw_config?.coin_rate || 0)))
+      state.packPrice = packPriceOf(data.my_class.draw_config)
       state.booted = true
       return { ok: true, hasClass: true }
     }
@@ -966,6 +968,12 @@ async function navigate(view, params = {}) {
 // ==============================
 // 화면 1: 학생 목록
 // ==============================
+// 카드팩(뽑기권) 가격 — 설정값이 없으면 기본 5코인
+function packPriceOf(cfg) {
+  const v = Math.trunc(Number(cfg?.pack_price))
+  return Number.isFinite(v) && v >= 1 ? v : 5
+}
+
 // 획득한 뱃지 줄 — 등급과 상관없이 실제로 딴 뱃지만 이모지로 쌓인다 (없으면 아무것도 안 그림)
 const CARD_BADGE_MAX = 6
 function cardBadgesHtml(s) {
@@ -1933,7 +1941,10 @@ async function renderDetail(id) {
       <div class="section-card">
         <div class="section-title">
           <span>⚡</span> 점수 주기
-          <button class="badge-manage-btn draw-open-btn" id="draw-btn">🎁 카드팩 뽑기</button>
+          <button class="badge-manage-btn draw-open-btn ${(s.draw_packs || 0) > 0 ? '' : 'no-pack'}" id="draw-btn"
+                  title="${(s.draw_packs || 0) > 0 ? `카드팩 ${s.draw_packs}개 보유` : '상점에서 🎁 카드팩을 사면 뽑을 수 있어요'}">
+            🎁 카드팩 뽑기 <span class="pack-count">×${s.draw_packs || 0}</span>
+          </button>
         </div>
         <div class="score-grid">${scoreBtns}</div>
       </div>
@@ -2017,7 +2028,11 @@ async function renderDetail(id) {
   document.getElementById('avatar-edit-btn').onclick = () => showAvatarPicker(s)
   document.getElementById('nickname-edit-btn').onclick = () => showNicknameEditor(s)
   document.getElementById('badge-manage-btn').onclick = () => showBadgeManageModal(s)
-  document.getElementById('draw-btn').onclick = () => showDrawModal(s)
+  document.getElementById('draw-btn').onclick = () => {
+    if ((s.draw_packs || 0) > 0) { showDrawModal(s); return }
+    showToast(`카드팩이 없어요. 상점에서 🎁 카드팩(🪙 ${s.pack_price || state.packPrice})을 먼저 사주세요`, 'warning', '🛍️')
+    document.getElementById('shop-body')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   document.getElementById('coin-minus').onclick = () => adjustCoins(s, -1)
   document.getElementById('coin-plus').onclick = () => adjustCoins(s, 1)
   document.getElementById('coin-custom').onclick = () => showCoinPrompt(s)
@@ -2196,6 +2211,9 @@ async function undoScoreLog(studentId, logId, activityName, onDone) {
       try {
         const res = await api(`/api/students/${studentId}/logs/${logId}/undo`, { method: 'POST' })
         showToast(`'${res.undone.name}' 기록을 취소했어요`, 'success', '↩')
+        if (res.restored_pack) {
+          setTimeout(() => showToast('쓴 카드팩 1개를 돌려줬어요', 'success', '🎁'), 300)
+        }
         if (res.revoked_badges?.length) {
           res.revoked_badges.forEach((b, i) => {
             setTimeout(() => showToast(`뱃지 회수: ${b.emoji || '🏅'} ${b.name}`, 'warning', '↩'), 400 + i * 400)
@@ -2644,6 +2662,7 @@ async function renderShopSettings() {
     if (fresh?.my_class?.draw_config) {
       state.coinRate = Math.max(0, Math.trunc(Number(fresh.my_class.draw_config.coin_rate || 0)))
       if (fresh.my_class.draw_config.rewards?.length) state.drawRewards = fresh.my_class.draw_config.rewards
+      state.packPrice = packPriceOf(fresh.my_class.draw_config)
     }
     if (coinStatus) {
       state.coinRate = coinStatus.rate
@@ -2690,6 +2709,20 @@ async function renderShopSettings() {
       <div class="draw-config-row">
         <input id="draw-rewards" class="account-input" style="flex:1;" value="${state.drawRewards.join(', ')}" placeholder="예: 20, 40, 60, 80, 100" />
         <button class="account-btn" id="draw-save" style="flex:0 0 auto;">저장</button>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title"><span>🎫</span> 카드팩 가격</div>
+      <div class="hint-text" style="margin-bottom:8px;">
+        카드팩 뽑기는 <b>상점에서 🎁 카드팩을 산 학생만</b> 할 수 있어요 (1개 = 뽑기 1번).
+        카드팩은 상점의 기본 상품으로 항상 보이고, 여기서 정한 <b>코인</b>으로 살 수 있어요.
+      </div>
+      <div class="draw-config-row">
+        <span class="coin-rate-label">🪙</span>
+        <input id="pack-price" class="account-input" type="number" min="1" style="width:110px;" value="${state.packPrice}" placeholder="예: 5" />
+        <span class="coin-rate-label">코인 / 1개</span>
+        <button class="account-btn" id="pack-price-save" style="flex:0 0 auto; margin-left:auto;">저장</button>
       </div>
     </div>
 
@@ -2750,6 +2783,22 @@ async function renderShopSettings() {
           'warning', '🛠',
         ), 900)
       }
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
+
+  document.getElementById('pack-price-save').onclick = async () => {
+    const price = Math.trunc(Number(document.getElementById('pack-price').value) || 0)
+    if (price < 1) { showToast('1 이상을 입력해주세요', 'warning'); return }
+    try {
+      await api(`/api/classes/${state.classId}/draw-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ pack_price: price }),
+      })
+      state.packPrice = price
+      document.getElementById('pack-price').value = price
+      showToast(`카드팩 가격을 🪙 ${price}코인으로 저장했어요`, 'success', '🎁')
     } catch (e) {
       showToast(e.message, 'error')
     }
@@ -2903,7 +2952,7 @@ function showDrawModal(s) {
     <div class="modal-backdrop">
       <div class="modal draw-modal">
         <div class="modal-title">🎁 카드팩 뽑기</div>
-        <div class="hint-text" style="text-align:center;">${escapeHtml(s.nickname || s.name)} — 카드 한 장을 골라요!</div>
+        <div class="hint-text" style="text-align:center;">${escapeHtml(s.nickname || s.name)} — 카드 한 장을 골라요! <span class="pack-count">🎁 카드팩 ${s.draw_packs || 0}개</span></div>
         <div class="draw-cards">
           ${[0, 1, 2].map(i => `
             <div class="draw-card" data-i="${i}">
@@ -2956,6 +3005,10 @@ function showDrawModal(s) {
       } catch (e) {
         drawing = false
         showToast(e.message, 'error')
+        if (e.code === 'no_draw_pack') {
+          container.innerHTML = ''
+          await renderDetail(s.id)
+        }
       }
     }
   })
@@ -2980,8 +3033,19 @@ async function loadShopSection(s) {
   }
 
   const coins = Number(s.coins) || 0
-  const itemsHtml = items.length ? `
+  const packPrice = Number(s.pack_price) || state.packPrice
+  const packOk = coins >= packPrice
+  // 기본 상품: 🎁 카드팩 (뽑기권) — 사야만 카드팩 뽑기가 활성화된다
+  const packHtml = `
+          <button class="shop-item shop-pack ${packOk ? '' : 'poor'}" id="shop-buy-pack" ${packOk ? '' : 'disabled'}
+                  title="사면 🎁 카드팩 뽑기를 1번 할 수 있어요">
+            <div class="si-emoji">🎁</div>
+            <div class="si-name">카드팩 <span class="pack-count">×${s.draw_packs || 0}</span></div>
+            <div class="si-price">🪙 ${packPrice}</div>
+          </button>`
+  const itemsHtml = `
     <div class="shop-grid">
+      ${packHtml}
       ${items.map(it => {
         const ok = coins >= it.price
         return `
@@ -2991,9 +3055,10 @@ async function loadShopSection(s) {
             <div class="si-price">🪙 ${it.price}</div>
           </button>`
       }).join('')}
-    </div>` : '<div class="hint-text">상품이 없어요. 설정 → 🎁 뽑기·상점에서 만들 수 있어요.</div>'
+    </div>${items.length ? '' : '<div class="hint-text">다른 상품은 설정 → 🎁 뽑기·상점에서 만들 수 있어요.</div>'}`
 
-  const unused = (s.coupons || []).filter(cp => !cp.used_at)
+  // 카드팩(뽑기권)은 쿠폰함이 아니라 🎁 카드팩 뽑기 버튼으로 쓰므로 목록에서 제외
+  const unused = (s.coupons || []).filter(cp => !cp.used_at && cp.kind !== 'draw')
   const couponsHtml = unused.length ? `
     <div class="coupon-title">🎫 쿠폰함 <span class="count-pill">${unused.length}</span></div>
     <div class="coupon-list">
@@ -3007,7 +3072,24 @@ async function loadShopSection(s) {
 
   body.innerHTML = itemsHtml + couponsHtml
 
-  body.querySelectorAll('.shop-item').forEach(btn => {
+  const packBtn = document.getElementById('shop-buy-pack')
+  if (packBtn) packBtn.onclick = () => {
+    showConfirm(
+      '🎁 카드팩 구매',
+      `🪙 ${packPrice}코인으로 카드팩 1개를 살까요?\n사면 카드팩 뽑기를 1번 할 수 있어요.`,
+      async () => {
+        try {
+          const res = await api(`/api/students/${s.id}/purchase-pack`, { method: 'POST' })
+          Sound.skillGet()
+          showToast(`카드팩 구매 완료! 이제 뽑기를 ${res.draw_packs}번 할 수 있어요`, 'success', '🎁')
+          await renderDetail(s.id)
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
+    )
+  }
+  body.querySelectorAll('.shop-item:not(.shop-pack)').forEach(btn => {
     btn.onclick = () => {
       showConfirm(
         `${btn.dataset.name} 구매`,

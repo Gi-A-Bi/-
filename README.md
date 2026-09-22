@@ -88,6 +88,9 @@
 | DELETE | `/api/classes/:classId/level-table/:level` | 가장 높은 레벨 삭제(추가한 31+ 레벨만, 기본 30 이하는 보호) |
 | GET/POST | `/api/classes/:classId/activities` | 활동 버튼 목록/추가 |
 | PUT/DELETE | `/api/activities/:id` | 활동 버튼 수정/삭제 |
+| PUT | `/api/classes/:classId/draw-config` | 뽑기·상점 설정 (`rewards` 뽑기 보상 XP 목록, `coin_rate` XP 자동 적립 비율, `pack_price` 카드팩 가격 코인). 한쪽만 보내면 나머지는 유지 |
+| POST | `/api/students/:id/purchase-pack` | **🎁 카드팩(뽑기권) 구매** — `pack_price` 코인 차감, `coupons`에 `kind:'draw'` 항목 추가 |
+| POST | `/api/students/:id/draw` | 카드팩 뽑기 — **안 쓴 카드팩이 있어야만 가능**(없으면 400 `no_draw_pack`). 1회에 카드팩 1개 소비 후 무작위 보상 XP 부여 |
 
 응답 코드:
 - `401 NO_AUTH` — 토큰 없음
@@ -122,6 +125,16 @@
 - 같은 XP 구간에서 두 번 지급되지 않음 (저장을 여러 번 눌러도 안전)
 - XP를 깎아도 이미 받은 코인은 뺏지 않음. 단 **점수 취소**는 그때 나간 코인을 되돌린다
 - `coins_auto` 컬럼(`supabase_0007_coin_auto.sql`)이 없으면 예전 방식(점수 줄 때 통과한 구간만 지급)으로 안전하게 동작
+
+### 카드팩 뽑기는 상점에서 사야 가능 (2026-09)
+
+예전에는 학생 상세의 **🎁 카드팩 뽑기** 버튼이 항상 열려 있어 코인과 무관하게 뽑을 수 있었다.
+이제는 상점의 기본 상품 **🎁 카드팩**을 코인으로 산 학생만 뽑을 수 있다 (카드팩 1개 = 뽑기 1번).
+
+- 가격은 설정 → 🎁 뽑기·상점 → **카드팩 가격**(`classes.draw_config.pack_price`, 기본 5코인). 별도 마이그레이션 없음
+- 산 카드팩은 `students.coupons` 에 `kind:'draw'` 로 저장되고, 쿠폰함 목록에는 안 보이며 뽑기 버튼 옆에 `×N` 으로 남은 수가 표시됨
+- 카드팩이 없으면 뽑기 버튼이 흐리게 바뀌고, 누르면 상점으로 안내
+- 뽑기 기록을 **점수 취소**하면 그때 쓴 카드팩 1개도 되돌려준다
 
 ## UI 디자인
 
