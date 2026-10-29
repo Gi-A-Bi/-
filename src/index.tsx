@@ -24,6 +24,7 @@ import {
   shortUid,
 } from './types'
 import { makeSupabase } from './supabase'
+import { mountMcpConsent, withMcp } from './mcp-oauth'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -479,7 +480,7 @@ app.post('/api/classes/:classId/students/bulk', async (c) => {
   if (owned instanceof Response) return owned
 
   const body = await c.req.json<{ names: string[] }>().catch(() => ({} as any))
-  const rawNames = Array.isArray(body.names) ? body.names : []
+  const rawNames: unknown[] = Array.isArray(body.names) ? body.names : []
   const names = rawNames
     .map(n => (typeof n === 'string' ? n.trim() : ''))
     .filter(n => n.length > 0 && n.length <= 30)
@@ -1936,8 +1937,8 @@ app.put('/api/classes/:classId/draw-config', async (c) => {
 
   if (body.rewards !== undefined) {
     const rewards = (Array.isArray(body.rewards) ? body.rewards : [])
-      .map(v => Math.trunc(Number(v)))
-      .filter(v => Number.isFinite(v) && v >= 1 && v <= 10000)
+      .map((v: unknown) => Math.trunc(Number(v)))
+      .filter((v: number) => Number.isFinite(v) && v >= 1 && v <= 10000)
     if (!rewards.length) return c.json({ error: '보상 XP를 1개 이상 입력해주세요 (1~10000)' }, 400)
     if (rewards.length > 30) return c.json({ error: '보상은 최대 30개까지 가능해요' }, 400)
     current.rewards = rewards
@@ -2295,4 +2296,5 @@ app.post('/api/students/:id/coupons/:uid/use', async (c) => {
   return c.json({ success: true, coupons })
 })
 
-export default app
+mountMcpConsent(app, requireAuth)
+export default withMcp(app)
