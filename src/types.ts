@@ -3,6 +3,10 @@
 // =============================================================================
 
 export type Bindings = {
+  OAUTH_KV?: KVNamespace
+  OAUTH_PROVIDER?: import('@cloudflare/workers-oauth-provider').OAuthHelpers
+  /** Only enable after confirming Workers/Supabase Free plans. */
+  MCP_ENABLED?: string
   SUPABASE_URL: string
   /** anon 키 — 브라우저로 전달되어 로그인(Auth)에만 쓰인다. RLS가 켜져 있어야 안전하다. */
   SUPABASE_KEY: string
