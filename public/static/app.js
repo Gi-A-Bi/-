@@ -4005,6 +4005,28 @@ function showOnboarding(claimable) {
 }
 
 // ==============================
+// 스크롤 중 등급 카드 애니메이션 일시정지
+// ==============================
+// 다이아/전설 카드의 상시 애니메이션(회전 테두리·홀로그램 등)은 스크롤 프레임과
+// GPU 를 나눠 써서 전자칠판처럼 사양이 낮은 기기에서는 해당 카드를 지나칠 때
+// 화면이 깜빡이거나 끊긴다. 스크롤 중에만 html.is-scrolling 을 붙여 CSS 에서
+// animation-play-state: paused 로 멈추고, 스크롤이 멎으면 잠시 뒤 다시 돌린다.
+// (capture 로 받아 window 뿐 아니라 우측 상세 패널 같은 내부 스크롤 영역도 감지)
+;(() => {
+  const root = document.documentElement
+  let timer = null
+  const onScroll = () => {
+    if (timer === null) root.classList.add('is-scrolling')
+    else clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      root.classList.remove('is-scrolling')
+    }, 180)
+  }
+  window.addEventListener('scroll', onScroll, { passive: true, capture: true })
+})()
+
+// ==============================
 // 헤더 버튼 & 진입점
 // ==============================
 document.addEventListener('DOMContentLoaded', async () => {
