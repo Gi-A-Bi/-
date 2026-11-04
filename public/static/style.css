@@ -519,6 +519,18 @@ button {
     inset 0 -1px 0 rgba(0,0,0,0.3),
     0 0 14px rgba(56, 189, 248, 0.55);
 }
+.rank-legend {
+  background: linear-gradient(110deg, #fff6c2 0%, #ffd34d 25%, #ff9a2e 50%, #ffd34d 75%, #fff6c2 100%);
+  background-size: 220% 100%;
+  color: #4a1e00;
+  border: 1px solid #a24e00;
+  box-shadow:
+    0 2px 6px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.75),
+    inset 0 -1px 0 rgba(0,0,0,0.3),
+    0 0 16px rgba(255, 170, 40, 0.75);
+  animation: legend-badge-shine 2.6s linear infinite;
+}
 
 .skill-count {
   font-size: 11px;
@@ -2792,10 +2804,27 @@ button {
   border-color: #0e7490;
 }
 
-/* 등급이 4개가 되어 세그먼트 버튼을 더 컴팩트하게 */
-.grade-seg { gap: 5px; }
-.grade-seg-btn { padding: 9px 3px; font-size: 12px; gap: 3px; }
+/* ===== 전설 등급 (레벨 편집 카드/세그먼트) ===== */
+.level-edit-item.rank-legend {
+  border-left-color: #f59e0b;
+  background: linear-gradient(90deg, #fff6dc 0%, #fff 55%);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05), 0 0 0 1px rgba(245,158,11,.35), 0 0 14px rgba(255,180,40,.25);
+}
+.grade-seg-btn.legend.active {
+  background: linear-gradient(180deg, #fff3b0, #ffb52e);
+  color: #4a2300;
+  border-color: #c76a00;
+  box-shadow: 0 0 12px rgba(255, 180, 40, 0.55), inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+/* 등급이 5개가 되어 세그먼트 버튼을 더 컴팩트하게 */
+.grade-seg { gap: 4px; }
+.grade-seg-btn { padding: 9px 2px; font-size: 11px; gap: 2px; }
 .grade-seg-btn .gseg-icon { font-size: 14px; }
+@media (max-width: 440px) {
+  .grade-seg-btn .gseg-label { display: none; }
+  .grade-seg-btn .gseg-icon { font-size: 18px; }
+}
 
 /* 레벨 추가 / 삭제 버튼 줄 */
 .level-add-row {
@@ -2954,6 +2983,235 @@ button {
 }
 
 /* =================================================================
+   ★★★ 전설 (LEGEND) — 다이아 위의 최상위 등급 ★★★
+   용암 금빛 회전 프레임 + 맥동하는 후광 + 회전 광선 + 궤도 링 + 왕관
+   + 떠오르는 별 파티클 + 렌즈 플레어 스윕 + 금박 홀로 + 그라데이션 금문자
+   ================================================================= */
+@keyframes legend-pulse {
+  0%, 100% {
+    box-shadow:
+      0 12px 22px rgba(0,0,0,.5),
+      0 0 0 2px rgba(255,236,170,.65),
+      0 0 22px rgba(255,200,60,.65),
+      0 0 54px rgba(255,120,30,.38);
+  }
+  50% {
+    box-shadow:
+      0 14px 26px rgba(0,0,0,.5),
+      0 0 0 2px rgba(255,250,220,.95),
+      0 0 38px rgba(255,215,90,.95),
+      0 0 92px rgba(255,140,40,.6);
+  }
+}
+@keyframes legend-rays { to { transform: rotate(360deg); } }
+@keyframes legend-breathe {
+  0%, 100% { opacity: .75; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+@keyframes legend-sweep {
+  0% { background-position: 220% 0; }
+  55%, 100% { background-position: -120% 0; }
+}
+@keyframes legend-orbit {
+  from { transform: translate(-50%, -50%) rotateX(68deg) rotateZ(0deg); }
+  to   { transform: translate(-50%, -50%) rotateX(68deg) rotateZ(360deg); }
+}
+@keyframes legend-orbit-rev {
+  from { transform: translate(-50%, -50%) rotateX(-64deg) rotateY(18deg) rotateZ(360deg); }
+  to   { transform: translate(-50%, -50%) rotateX(-64deg) rotateY(18deg) rotateZ(0deg); }
+}
+@keyframes legend-rise {
+  0%   { transform: translateY(0) scale(.6) rotate(0deg); opacity: 0; }
+  12%  { opacity: 1; }
+  80%  { opacity: .9; }
+  100% { transform: translateY(-300px) scale(1.15) rotate(180deg); opacity: 0; }
+}
+@keyframes legend-crown-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0) rotate(-4deg); }
+  50%      { transform: translateX(-50%) translateY(-4px) rotate(4deg); }
+}
+@keyframes legend-badge-shine { to { background-position: -220% 0; } }
+@keyframes legend-wing {
+  0%, 100% { opacity: .55; transform: translateY(-50%) scale(1); }
+  50%      { opacity: 1;   transform: translateY(-50%) scale(1.18); }
+}
+@keyframes legend-frame-glow {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255,236,170,.55), inset 0 0 18px rgba(255,190,60,.25); }
+  50%      { box-shadow: inset 0 0 0 1px rgba(255,250,220,.95), inset 0 0 30px rgba(255,210,90,.5); }
+}
+
+/* 카드 본체: 회전하는 용암 금빛 프레임 + 맥동하는 바깥 후광 */
+.tcard.rank-legend {
+  border: 10px solid transparent;
+  background:
+    linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%) padding-box,
+    conic-gradient(from var(--holo),
+      #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+      #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  animation: holo-rotate 4s linear infinite, legend-pulse 2.6s ease-in-out infinite;
+  z-index: 1;
+}
+.tcard.rank-legend:hover { transform: translateY(-6px) scale(1.02); }
+
+/* 안쪽 이중 액자 + 숨쉬는 내부 광택 */
+.tcard.rank-legend .tc-lg-frame {
+  position: absolute; inset: 5px; z-index: 3; pointer-events: none;
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 236, 170, .9);
+  outline: 1px dashed rgba(255, 240, 200, .45);
+  outline-offset: -5px;
+  animation: legend-frame-glow 2.6s ease-in-out infinite;
+}
+
+/* 아트 뒤 후광 + 회전 광선 */
+.tcard.rank-legend .tc-lg-aura {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(circle at 50% 40%, rgba(255,222,110,.65) 0%, rgba(255,140,40,.32) 32%, transparent 62%);
+  mix-blend-mode: screen;
+  animation: legend-breathe 3.2s ease-in-out infinite;
+}
+.tcard.rank-legend .tc-lg-rays {
+  position: absolute; left: 50%; top: 40%; width: 240%; aspect-ratio: 1; z-index: 1; pointer-events: none;
+  margin-left: -120%; margin-top: -120%;
+  background: repeating-conic-gradient(from 0deg,
+    rgba(255, 225, 130, .34) 0deg 6deg, transparent 6deg 15deg,
+    rgba(255, 170, 60, .22) 15deg 19deg, transparent 19deg 30deg);
+  mix-blend-mode: screen;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, rgba(0,0,0,.6) 22%, transparent 42%);
+          mask-image: radial-gradient(circle at 50% 50%, #000 0%, rgba(0,0,0,.6) 22%, transparent 42%);
+  animation: legend-rays 16s linear infinite;
+}
+
+/* 금박 프리즘 홀로 (다이아 무지개의 금빛 버전) */
+.tcard.rank-legend .tc-foil {
+  opacity: .62; mix-blend-mode: screen;
+  background:
+    linear-gradient(115deg, rgba(255,215,0,.42) 4%, rgba(255,255,255,.14) 30%, rgba(255,110,60,.36) 52%, rgba(200,130,255,.34) 72%, rgba(255,225,120,.42) 96%),
+    repeating-linear-gradient(62deg, rgba(255,255,255,.16) 0 4px, transparent 4px 12px);
+  background-size: 220% 220%, auto;
+  animation: holo-shimmer 3.6s ease-in-out infinite;
+}
+
+/* 렌즈 플레어 스윕 (주기적으로 번쩍) */
+.tcard.rank-legend .tc-lg-flare {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.18) 47%, rgba(255,255,255,.75) 50%, rgba(255,255,255,.18) 53%, transparent 58%);
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  animation: legend-sweep 3.4s ease-in-out infinite;
+}
+
+/* 궤도 링 + 빛나는 구슬 (아트 주변을 돈다) */
+.tcard.rank-legend .tc-lg-ring {
+  position: absolute; left: 50%; top: 40%; width: 78%; aspect-ratio: 1; z-index: 3; pointer-events: none;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 232, 160, .55);
+  box-shadow: 0 0 10px rgba(255, 210, 90, .35), inset 0 0 10px rgba(255, 210, 90, .2);
+  transform: translate(-50%, -50%) rotateX(68deg);
+  animation: legend-orbit 5.5s linear infinite;
+}
+.tcard.rank-legend .tc-lg-ring.r2 {
+  width: 92%;
+  border-color: rgba(255, 190, 90, .4);
+  animation: legend-orbit-rev 8s linear infinite;
+}
+.tcard.rank-legend .tc-lg-orb {
+  position: absolute; top: -5px; left: 50%; width: 10px; height: 10px; margin-left: -5px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 0 6px 2px #fff, 0 0 14px 6px rgba(255, 214, 102, .9), 0 0 26px 10px rgba(255, 150, 50, .5);
+}
+.tcard.rank-legend .tc-lg-ring.r2 .tc-lg-orb { width: 7px; height: 7px; margin-left: -3.5px; top: -3.5px; }
+
+/* 떠오르는 별 파티클 */
+.tcard.rank-legend .tc-lg-particles { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; }
+.tcard.rank-legend .tc-lg-particle {
+  position: absolute; bottom: -8%; color: #fff8d6; line-height: 1;
+  text-shadow: 0 0 6px #fff, 0 0 14px #ffd766, 0 0 22px rgba(255,140,40,.8);
+  animation: legend-rise 4.2s ease-in infinite;
+}
+.tcard.rank-legend .tc-lg-particle.p1 { left: 8%;  font-size: 12px; animation-duration: 4.6s; animation-delay: 0s; }
+.tcard.rank-legend .tc-lg-particle.p2 { left: 22%; font-size: 9px;  animation-duration: 5.4s; animation-delay: 1.1s; }
+.tcard.rank-legend .tc-lg-particle.p3 { left: 36%; font-size: 14px; animation-duration: 4.1s; animation-delay: 2.3s; }
+.tcard.rank-legend .tc-lg-particle.p4 { left: 50%; font-size: 10px; animation-duration: 5.9s; animation-delay: 0.6s; }
+.tcard.rank-legend .tc-lg-particle.p5 { left: 63%; font-size: 13px; animation-duration: 4.4s; animation-delay: 3.1s; }
+.tcard.rank-legend .tc-lg-particle.p6 { left: 76%; font-size: 9px;  animation-duration: 5.1s; animation-delay: 1.8s; }
+.tcard.rank-legend .tc-lg-particle.p7 { left: 88%; font-size: 12px; animation-duration: 4.8s; animation-delay: 2.7s; }
+.tcard.rank-legend .tc-lg-particle.p8 { left: 15%; font-size: 8px;  animation-duration: 6.3s; animation-delay: 3.6s; }
+
+/* 왕관 + LEGEND 리본 (상단 중앙) */
+.tcard.rank-legend .tc-lg-crown {
+  position: absolute; top: 2px; left: 50%; z-index: 7; font-size: 24px; line-height: 1; pointer-events: none;
+  filter: drop-shadow(0 0 5px rgba(255,230,140,1)) drop-shadow(0 0 14px rgba(255,170,40,.9)) drop-shadow(0 3px 4px rgba(0,0,0,.6));
+  animation: legend-crown-bob 2.4s ease-in-out infinite;
+}
+.tcard.rank-legend .tc-lg-ribbon {
+  position: absolute; top: 29px; left: 50%; transform: translateX(-50%); z-index: 7; pointer-events: none;
+  padding: 2px 10px; border-radius: 10px;
+  font-size: 8.5px; font-weight: 900; letter-spacing: 2.2px; color: #4a1e00;
+  background: linear-gradient(110deg, #fff6c2, #ffd34d 30%, #ff9a2e 50%, #ffd34d 70%, #fff6c2);
+  background-size: 220% 100%;
+  border: 1px solid rgba(255,255,255,.75);
+  box-shadow: 0 3px 8px rgba(0,0,0,.5), 0 0 12px rgba(255,190,60,.7), inset 0 1px 0 rgba(255,255,255,.8);
+  animation: legend-badge-shine 2.6s linear infinite;
+}
+.tcard.rank-legend .tc-lg-ribbon span { display: inline-block; transform: translateX(1px); }
+
+/* 좌우 날개 장식 */
+.tcard.rank-legend .tc-lg-wing {
+  position: absolute; top: 46%; z-index: 6; pointer-events: none;
+  font-size: 20px; font-weight: 900; color: #ffe9a8; line-height: 1;
+  text-shadow: 0 0 8px rgba(255,220,120,1), 0 0 16px rgba(255,150,40,.8);
+  animation: legend-wing 2.4s ease-in-out infinite;
+}
+.tcard.rank-legend .tc-lg-wing.l { left: 10px; }
+.tcard.rank-legend .tc-lg-wing.r { right: 10px; animation-delay: 1.2s; }
+
+/* 코너 장식: 더 크고 두껍게, 금빛 발광 */
+.tcard.rank-legend .tc-corner {
+  opacity: 1; width: 20px; height: 20px; color: #fff2b8;
+  filter: drop-shadow(0 0 4px rgba(255,215,90,1)) drop-shadow(0 0 10px rgba(255,150,40,.8));
+}
+.tcard.rank-legend .tc-corner.tl, .tcard.rank-legend .tc-corner.tr,
+.tcard.rank-legend .tc-corner.bl, .tcard.rank-legend .tc-corner.br { border-width: 3px; }
+
+/* HP / Lv 칩: 금 테두리 */
+.tcard.rank-legend .tc-hp, .tcard.rank-legend .tc-lv {
+  background: linear-gradient(180deg, rgba(70, 30, 10, .9), rgba(30, 8, 4, .92));
+  border: 1px solid rgba(255, 215, 120, .8);
+  box-shadow: 0 4px 8px rgba(0,0,0,.45), 0 0 10px rgba(255,190,60,.55), inset 0 1.5px 0 rgba(255,235,170,.5);
+}
+
+/* 이름판: 어두운 보라-진홍 그라데이션 + 윗선 금빛 라인 */
+.tcard.rank-legend .tc-info {
+  background: linear-gradient(to top, rgba(32, 6, 20, .96), rgba(32, 6, 20, .62) 46%, transparent);
+}
+.tcard.rank-legend .tc-info::before {
+  content: ''; position: absolute; left: 14%; right: 14%; top: 12px; height: 1.5px;
+  background: linear-gradient(90deg, transparent, #fff3c0 30%, #ffd34d 50%, #fff3c0 70%, transparent);
+  box-shadow: 0 0 8px rgba(255, 210, 90, .9);
+}
+.tcard.rank-legend .tc-name {
+  font-size: 17px; letter-spacing: 0.2px;
+  background: linear-gradient(180deg, #ffffff 0%, #fff6c8 30%, #ffe27a 58%, #ffc247 80%, #fff3c0 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 7px rgba(255, 215, 110, .95)) drop-shadow(0 0 2px rgba(255, 240, 200, .9)) drop-shadow(0 2px 3px rgba(0,0,0,.95));
+}
+.tcard.rank-legend .tc-badge {
+  background: linear-gradient(110deg, #fff6c2 0%, #ffd34d 25%, #ff9a2e 50%, #ffd34d 75%, #fff6c2 100%);
+  background-size: 220% 100%;
+  color: #4a1e00;
+  border: 1px solid rgba(255,255,255,.75);
+  box-shadow: 0 4px 9px rgba(0,0,0,.45), 0 0 16px rgba(255,190,60,.8), inset 0 2px 3px rgba(255,255,255,.75), inset 0 -3px 6px rgba(0,0,0,.18);
+  animation: legend-badge-shine 2.6s linear infinite;
+}
+.tcard.rank-legend .tc-bd {
+  border-color: rgba(255, 230, 160, .85);
+  box-shadow: 0 3px 6px rgba(0,0,0,.45), 0 0 8px rgba(255,190,60,.6), inset 0 1px 0 rgba(255,255,255,.6);
+}
+
+/* =================================================================
    #1 상세 화면(캐릭터 시트) 등급 프레임 — 목록 카드와 톤 통일
    ================================================================= */
 .detail-hero { border: 3px solid var(--card-border-dim); }
@@ -2967,11 +3225,40 @@ button {
   animation: holo-rotate 7s linear infinite;
   box-shadow: var(--shadow-lg), 0 0 40px rgba(120,220,255,.5), 0 0 70px rgba(255,120,200,.35);
 }
+@keyframes legend-pulse-hero {
+  0%, 100% { box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,236,170,.6), 0 0 40px rgba(255,200,70,.55), 0 0 90px rgba(255,120,30,.3); }
+  50%      { box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,250,220,.95), 0 0 60px rgba(255,215,90,.85), 0 0 130px rgba(255,140,40,.5); }
+}
+.detail-hero.rank-legend {
+  border: 6px solid transparent;
+  background:
+    radial-gradient(ellipse at top, rgba(255, 200, 80, 0.22) 0%, transparent 60%) padding-box,
+    linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%) padding-box,
+    conic-gradient(from var(--holo),
+      #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+      #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  animation: holo-rotate 4s linear infinite, legend-pulse-hero 2.6s ease-in-out infinite;
+}
+.detail-hero.rank-legend::before {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 210, 90, 0.32) 0%, transparent 60%),
+    repeating-conic-gradient(from 0deg at 50% 18%, rgba(255,225,130,.09) 0deg 5deg, transparent 5deg 14deg);
+}
+.detail-hero.rank-legend .detail-nickname {
+  background: linear-gradient(180deg, #ffffff 0%, #fff6c8 30%, #ffe27a 58%, #ffc247 80%, #fff3c0 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 9px rgba(255, 215, 110, .9)) drop-shadow(0 2px 3px rgba(0,0,0,.9));
+}
 /* 히어로 아바타에 등급 링 */
 .detail-hero.rank-bronze .avatar-lg { box-shadow: 0 0 0 3px #b87333, 0 6px 14px rgba(0,0,0,.4); }
 .detail-hero.rank-silver .avatar-lg { box-shadow: 0 0 0 3px #c2cdda, 0 6px 14px rgba(0,0,0,.4); }
 .detail-hero.rank-gold .avatar-lg { box-shadow: 0 0 0 3px #f3c761, 0 0 20px rgba(243,199,97,.6), 0 6px 14px rgba(0,0,0,.4); }
 .detail-hero.rank-diamond .avatar-lg { box-shadow: 0 0 0 3px #7df9ff, 0 0 22px rgba(120,220,255,.6), 0 6px 14px rgba(0,0,0,.4); }
+.detail-hero.rank-legend .avatar-lg {
+  box-shadow: 0 0 0 3px #ffe27a, 0 0 0 6px rgba(255, 140, 40, .55), 0 0 30px rgba(255, 200, 80, .85), 0 6px 14px rgba(0,0,0,.4);
+}
 
 /* =================================================================
    #1 순위 배너 행 — 등급별 좌측 강조 + 아바타 링
@@ -2983,6 +3270,12 @@ button {
 .rank-item.rrow-diamond{ border-left-color: rgba(56,189,248,.9); }
 .rank-item.rrow-gold .rank-avatar { box-shadow: 0 0 0 2px rgba(243,199,97,.8), 0 2px 6px rgba(0,0,0,.3); }
 .rank-item.rrow-diamond .rank-avatar { box-shadow: 0 0 0 2px #7df9ff, 0 0 10px rgba(120,220,255,.5), 0 2px 6px rgba(0,0,0,.3); }
+.rank-item.rrow-legend {
+  border-left-color: rgba(255, 170, 40, .95);
+  background: linear-gradient(90deg, rgba(255, 190, 60, .12), transparent 70%);
+}
+.rank-item.rrow-legend .rank-avatar { box-shadow: 0 0 0 2px #ffe27a, 0 0 12px rgba(255, 190, 60, .75), 0 2px 6px rgba(0,0,0,.3); }
+.rank-item.rrow-legend .rank-name { color: #ffe9a8; text-shadow: 0 0 8px rgba(255, 200, 80, .5); }
 
 /* =================================================================
    #2 헤더 / 학급 경험치 배너 톤 정리 (트레이딩 카드와 어울리게)
@@ -3003,6 +3296,8 @@ button {
    ================================================================= */
 @media (prefers-reduced-motion: reduce) {
   .tcard.rank-diamond, .detail-hero.rank-diamond, .tcard.rank-diamond .tc-foil { animation: none; }
+  .tcard.rank-legend, .detail-hero.rank-legend, .tcard.rank-legend *, .rank-legend { animation: none !important; }
+  .tcard.rank-legend .tc-lg-particles, .tcard.rank-legend .tc-lg-flare { display: none; }
 }
 
 /* =================================================================
@@ -3020,6 +3315,7 @@ button {
 .skill-set-item.rank-silver { border-left-color: #9aa7b4; }
 .skill-set-item.rank-gold   { border-left-color: #e6b422; }
 .skill-set-item.rank-diamond{ border-left-color: #22d3ee; }
+.skill-set-item.rank-legend { border-left-color: #f59e0b; background: linear-gradient(90deg, #fff6dc 0%, #fff 55%); }
 .skill-set-item.is-none { opacity: 0.92; }
 .skill-set-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .skill-set-head .f-kind {

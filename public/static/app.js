@@ -401,6 +401,7 @@ function avatarColor(student) {
 }
 
 function rankInfo(rank) {
+  if (rank === 'legend') return { label: '전설', icon: '👑', cls: 'rank-legend' }
   if (rank === 'diamond') return { label: '다이아', icon: '💎', cls: 'rank-diamond' }
   if (rank === 'gold') return { label: '골드', icon: '🥇', cls: 'rank-gold' }
   if (rank === 'silver') return { label: '실버', icon: '🥈', cls: 'rank-silver' }
@@ -989,6 +990,31 @@ function hpHearts(hp, max = 3) {
   const h = Math.max(0, Math.min(max, Number(hp) || 0))
   return '❤️'.repeat(h) || '🩶'
 }
+// 등급(한글) → rank(영문). 서버 gradeToRank 와 같은 규칙
+function gradeToRankClient(grade) {
+  if (grade === '전설') return 'legend'
+  if (grade === '다이아') return 'diamond'
+  if (grade === '골드') return 'gold'
+  if (grade === '실버') return 'silver'
+  return 'bronze'
+}
+// 전설 카드 전용 장식 레이어 (후광·광선·궤도 링·왕관·떠오르는 별 파티클·렌즈 플레어)
+function legendLayersHtml() {
+  const particles = Array.from({ length: 8 }, (_, i) =>
+    `<span class="tc-lg-particle p${i + 1}">${i % 3 === 0 ? '★' : i % 3 === 1 ? '✦' : '✧'}</span>`).join('')
+  return `
+      <span class="tc-foil"></span>
+      <span class="tc-lg-rays"></span>
+      <span class="tc-lg-aura"></span>
+      <span class="tc-lg-flare"></span>
+      <span class="tc-lg-ring"><span class="tc-lg-orb"></span></span>
+      <span class="tc-lg-ring r2"><span class="tc-lg-orb"></span></span>
+      <span class="tc-lg-particles">${particles}</span>
+      <span class="tc-lg-ribbon"><span>LEGEND</span></span>
+      <span class="tc-lg-crown">👑</span>
+      <span class="tc-lg-wing l">❮</span><span class="tc-lg-wing r">❯</span>
+      <span class="tc-lg-frame"></span>`
+}
 // 학생 → 트레이딩 카드 마크업
 function cardHtml(s) {
   const rank = rankInfo(s.rank)
@@ -1006,6 +1032,7 @@ function cardHtml(s) {
       <div class="tc-gloss"></div>
       <span class="tc-corner tl"></span><span class="tc-corner tr"></span><span class="tc-corner bl"></span><span class="tc-corner br"></span>
       ${s.rank === 'diamond' ? '<span class="tc-foil"></span><span class="tc-spark a">✦</span><span class="tc-spark b">✧</span>' : ''}
+      ${s.rank === 'legend' ? legendLayersHtml() : ''}
       <div class="tc-hp">${hpHearts(s.hp, s.max_hp || 3)}</div>
       <div class="tc-lv">Lv.${s.level}</div>
       <span class="tc-check">✓</span>
@@ -3259,6 +3286,7 @@ async function renderLevelsSettings() {
     { key: '실버', rank: 'silver', icon: '🥈' },
     { key: '골드', rank: 'gold', icon: '🥇' },
     { key: '다이아', rank: 'diamond', icon: '💎' },
+    { key: '전설', rank: 'legend', icon: '👑' },
   ]
   const maxLevel = levels.reduce((m, lv) => Math.max(m, lv.level), 0)
 
@@ -3292,7 +3320,7 @@ async function renderLevelsSettings() {
     <div class="hint-text settings-hint-info">
       🏅 각 레벨이 되는 데 필요한 <b>기준 XP</b>와 <b>등급</b>을 직접 바꿀 수 있어요.<br/>
       • 기준 XP: 칸을 눌러 숫자 입력 → 다른 곳을 누르면 <b>자동 저장</b> (이전·다음 레벨 사이 값이어야 함)<br/>
-      • 등급: <b>🥉/🥈/🥉 버튼을 한 번 누르면</b> 그 레벨 등급이 바로 바뀜 → 등급 구간 조절
+      • 등급: <b>🥉/🥈/🥇/💎/👑 버튼을 한 번 누르면</b> 그 레벨 등급이 바로 바뀜 → 등급 구간 조절 (서열: 브론즈 &lt; 실버 &lt; 골드 &lt; 다이아 &lt; <b>전설</b>)
     </div>
     <div class="level-edit-list">${rows}</div>
     <div class="level-add-row">
@@ -3343,7 +3371,7 @@ async function renderLevelsSettings() {
             method: 'PUT',
             body: JSON.stringify({ grade }),
           })
-          if (row) { row.grade = grade; row.rank = grade === '골드' ? 'gold' : grade === '실버' ? 'silver' : 'bronze' }
+          if (row) { row.grade = grade; row.rank = gradeToRankClient(grade) }
           // 버튼 활성 상태 갱신
           item.querySelectorAll('.grade-seg-btn').forEach(b => b.classList.toggle('active', b === btn))
           // 행 색상 갱신

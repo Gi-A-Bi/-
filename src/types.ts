@@ -140,7 +140,7 @@ export interface ActivityRow {
 export interface LevelRow {
   level: number
   min_xp: number
-  grade: '브론즈' | '실버' | '골드' | string
+  grade: '브론즈' | '실버' | '골드' | '다이아' | '전설' | string
   unlock_skill: string | null
   passive_skill: string | null
   unlock_uses?: number   // 0=계속 유지(상시), 1~3=N회권. 기본 1
@@ -166,8 +166,13 @@ export interface ParsedSkillInfo {
 
 // =============================================================================
 // 유틸: grade → rank(영문)
+//   등급 서열: 브론즈 < 실버 < 골드 < 다이아 < 전설
 // =============================================================================
-export function gradeToRank(grade: string): 'bronze' | 'silver' | 'gold' | 'diamond' {
+export type Rank = 'bronze' | 'silver' | 'gold' | 'diamond' | 'legend'
+export const ALLOWED_GRADES = ['브론즈', '실버', '골드', '다이아', '전설'] as const
+
+export function gradeToRank(grade: string): Rank {
+  if (grade === '전설' || grade === '레전드' || /legend/i.test(grade)) return 'legend'
   if (grade === '다이아' || grade === '다이아몬드' || /dia(mond)?/i.test(grade)) return 'diamond'
   if (grade === '실버' || /silver/i.test(grade)) return 'silver'
   if (grade === '골드' || /gold/i.test(grade)) return 'gold'
