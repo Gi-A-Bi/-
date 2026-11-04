@@ -20,6 +20,7 @@ import {
   calcLevel,
   nextLevel,
   gradeToRank,
+  ALLOWED_GRADES,
   parseUnlockSkill,
   shortUid,
 } from './types'
@@ -1493,7 +1494,7 @@ app.put('/api/classes/:classId/level-table/:level/skill', async (c) => {
 // 레벨 기준 XP / 등급 수정 (전역 levels 테이블)
 //   - body: { min_xp?, grade? }
 //   - min_xp 는 이전 레벨보다 크고 다음 레벨보다 작아야 함(순서 보존)
-//   - grade 는 브론즈/실버/골드 중 하나
+//   - grade 는 브론즈/실버/골드/다이아/전설 중 하나
 // =================================================================
 app.put('/api/classes/:classId/level-table/:level', async (c) => {
   const classId = c.req.param('classId')
@@ -1512,8 +1513,8 @@ app.put('/api/classes/:classId/level-table/:level', async (c) => {
 
   if (body.grade !== undefined) {
     const g = String(body.grade).trim()
-    if (!['브론즈', '실버', '골드', '다이아'].includes(g)) {
-      return c.json({ error: '등급은 브론즈/실버/골드/다이아 중 하나여야 합니다' }, 400)
+    if (!(ALLOWED_GRADES as readonly string[]).includes(g)) {
+      return c.json({ error: `등급은 ${ALLOWED_GRADES.join('/')} 중 하나여야 합니다` }, 400)
     }
     patch.grade = g
   }
@@ -1571,8 +1572,8 @@ app.post('/api/classes/:classId/level-table', async (c) => {
   let grade = last.grade
   if (body.grade !== undefined) {
     const g = String(body.grade).trim()
-    if (!['브론즈', '실버', '골드', '다이아'].includes(g)) {
-      return c.json({ error: '등급은 브론즈/실버/골드/다이아 중 하나여야 합니다' }, 400)
+    if (!(ALLOWED_GRADES as readonly string[]).includes(g)) {
+      return c.json({ error: `등급은 ${ALLOWED_GRADES.join('/')} 중 하나여야 합니다` }, 400)
     }
     grade = g
   }
