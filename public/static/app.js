@@ -980,10 +980,22 @@ const CARD_BADGE_MAX = 6
 function cardBadgesHtml(s) {
   const list = Array.isArray(s.earned_badges) ? s.earned_badges : []
   if (!list.length) return ''
-  const shown = list.slice(0, CARD_BADGE_MAX).map(b =>
-    `<span class="tc-bd" title="${escapeHtml(b.name || '')}">${b.emoji || '🏅'}</span>`).join('')
+  const total = badgeTotal(list)
+  const shown = list.slice(0, CARD_BADGE_MAX).map(b => {
+    const n = Number(b.count) || 1
+    const title = escapeHtml(b.name || '') + (n > 1 ? ` ×${n}` : '')
+    return `<span class="tc-bd" title="${title}">${b.emoji || '🏅'}${n > 1 ? `<i class="tc-bd-n">${n}</i>` : ''}</span>`
+  }).join('')
   const more = list.length > CARD_BADGE_MAX ? `<span class="tc-bd-more">+${list.length - CARD_BADGE_MAX}</span>` : ''
-  return `<div class="tc-badges" title="획득한 뱃지 ${list.length}개">${shown}${more}</div>`
+  return `<div class="tc-badges" title="획득한 뱃지 ${total}개">${shown}${more}</div>`
+}
+// 획득 뱃지 총 개수 (같은 뱃지를 여러 번 딴 경우 count 만큼 셈)
+function badgeTotal(list) {
+  return (Array.isArray(list) ? list : []).reduce((n, b) => n + (Number(b.count) || 1), 0)
+}
+// 점수 부여 응답의 new_badges 총 개수 (한 번에 같은 뱃지를 여러 개 딸 수 있음)
+function newBadgeTotal(list) {
+  return (Array.isArray(list) ? list : []).reduce((n, b) => n + (Number(b.count) || 1), 0)
 }
 // HP 하트 — HP 개수만큼 빨간 하트 (HP가 깎이면 하트 수도 줄어듦)
 function hpHearts(hp, max = 3) {
@@ -1466,7 +1478,7 @@ async function applyMultiScore(name, delta) {
     })
     delta >= 0 ? Sound.scoreUp() : Sound.scoreDown()
     const levelUps = (res.results || []).filter(r => r.leveled_up).length
-    const badgeGets = (res.results || []).reduce((n, r) => n + (r.new_badges?.length || 0), 0)
+    const badgeGets = (res.results || []).reduce((n, r) => n + newBadgeTotal(r.new_badges), 0)
     const coinGets = (res.results || []).reduce((n, r) => n + (r.earned_coins || 0), 0)
     let msg = `${res.count}명에게 ${name} ${delta >= 0 ? '+' : ''}${delta} XP`
     if (levelUps) msg += ` · 🎉 ${levelUps}명 레벨업!`
@@ -1942,23 +1954,23 @@ async function renderDetail(id) {
       <div class="section-card">
         <div class="section-title">
           <span>🏅</span> 뱃지
-          <span class="count-pill">${(s.earned_badges || []).length}</span>
+          <span class="count-pill">${badgeTotal(s.earned_badges)}</span>
           <button class="badge-manage-btn" id="badge-manage-btn">＋ 수여·회수</button>
         </div>
         ${(s.earned_badges || []).length === 0
           ? `<div class="hint-text">아직 뱃지가 없어요. 설정 → 🏅 뱃지에서 만들고 여기서 수여할 수 있어요.</div>`
           : `<div class="badge-chip-list">${(s.earned_badges || []).map(b => `
               <span class="badge-chip" title="${escapeHtml(b.description || '')}">
-                <span class="bc-emoji">${b.emoji || '🏅'}</span>${escapeHtml(b.name)}${b.auto ? '<span class="bc-auto">자동</span>' : ''}
+                <span class="bc-emoji">${b.emoji || '🏅'}</span>${escapeHtml(b.name)}${(Number(b.count) || 1) > 1 ? `<span class="bc-count">×${b.count}</span>` : ''}${b.auto ? '<span class="bc-auto">자동</span>' : ''}
               </span>`).join('')}</div>`}
         ${(s.badge_progress || []).length ? `
-          <div class="badge-progress-title">🔒 도전 중인 뱃지</div>
+          <div class="badge-progress-title">🔁 도전 중인 뱃지 <span class="bp-hint">XP·활동 뱃지는 채울 때마다 다시 받아요</span></div>
           <div class="badge-progress-list">
             ${(s.badge_progress || []).map(bp => `
               <div class="badge-prog">
                 <span class="bp-emoji">${bp.emoji || '🏅'}</span>
                 <div class="bp-mid">
-                  <div class="bp-name">${escapeHtml(bp.name)}</div>
+                  <div class="bp-name">${escapeHtml(bp.name)}${bp.earned_count > 0 ? `<span class="bp-earned">${bp.earned_count}번 획득</span>` : ''}</div>
                   <div class="bp-bar"><div class="bp-fg" style="width:${Math.min(100, Math.round(bp.current / bp.target * 100))}%"></div></div>
                 </div>
                 <span class="bp-count">${bp.current}/${bp.target}</span>
@@ -2214,7 +2226,7 @@ async function addScore(studentId, name, delta) {
       res.new_badges.forEach((b, i) => {
         setTimeout(() => {
           Sound.skillGet()
-          showToast(`뱃지 획득! ${b.name}`, 'level-up', b.emoji || '🏅')
+          showToast(`뱃지 획득! ${b.name}${(b.count || 1) > 1 ? ` ×${b.count}` : ''}`, 'level-up', b.emoji || '🏅')
         }, 900 + i * 400)
       })
     }
@@ -2245,7 +2257,7 @@ async function undoScoreLog(studentId, logId, activityName, onDone) {
         }
         if (res.revoked_badges?.length) {
           res.revoked_badges.forEach((b, i) => {
-            setTimeout(() => showToast(`뱃지 회수: ${b.emoji || '🏅'} ${b.name}`, 'warning', '↩'), 400 + i * 400)
+            setTimeout(() => showToast(`뱃지 회수: ${b.emoji || '🏅'} ${b.name}${(b.count || 1) > 1 ? ` ×${b.count}` : ''}`, 'warning', '↩'), 400 + i * 400)
           })
         }
         if (res.removed_skills?.length) {
@@ -2484,8 +2496,8 @@ async function renderSettings() {
 //   레벨 도달 / 누적 XP 도달 / 특정 활동 횟수
 function badgeCondText(b) {
   if (b.auto_type === 'level') return `⚙️ 자동 · Lv.${b.auto_value} 도달하면`
-  if (b.auto_type === 'xp') return `⚙️ 자동 · ${Number(b.auto_value).toLocaleString()} XP 모으면`
-  if (b.auto_type === 'activity_count') return `⚙️ 자동 · '${b.auto_activity}' ${b.auto_value}번 하면`
+  if (b.auto_type === 'xp') return `⚙️ 자동 · ${Number(b.auto_value).toLocaleString()} XP 모을 때마다 (반복)`
+  if (b.auto_type === 'activity_count') return `⚙️ 자동 · '${b.auto_activity}' ${b.auto_value}번 할 때마다 (반복)`
   return '✋ 수동 · 학생 화면에서 직접 수여'
 }
 
@@ -3041,7 +3053,7 @@ function showDrawModal(s) {
           }
           if (res.new_badges && res.new_badges.length) {
             res.new_badges.forEach((b, i) => {
-              setTimeout(() => showToast(`뱃지 획득! ${b.name}`, 'level-up', b.emoji || '🏅'), 800 + i * 400)
+              setTimeout(() => showToast(`뱃지 획득! ${b.name}${(b.count || 1) > 1 ? ` ×${b.count}` : ''}`, 'level-up', b.emoji || '🏅'), 800 + i * 400)
             })
           }
           if (res.earned_coins > 0) {
@@ -3230,21 +3242,23 @@ async function showBadgeManageModal(s) {
     return
   }
 
-  const ownedIds = new Set((s.earned_badges || []).map(b => b.badge_id))
+  // 뱃지별 보유 개수 — 같은 뱃지를 여러 번 수여할 수 있다
+  const ownedCount = new Map((s.earned_badges || []).map(b => [b.badge_id, Number(b.count) || 1]))
   let changed = false
   const container = document.getElementById('modal-container')
 
   const render = () => {
     const rows = badges.map(b => {
-      const has = ownedIds.has(b.id)
+      const n = ownedCount.get(b.id) || 0
       return `
-        <div class="badge-award-item ${has ? 'owned' : ''}" data-id="${b.id}">
+        <div class="badge-award-item ${n > 0 ? 'owned' : ''}" data-id="${b.id}">
           <span class="ba-emoji">${b.emoji || '🏅'}</span>
           <div class="ba-info">
-            <div class="ba-name">${escapeHtml(b.name)}</div>
+            <div class="ba-name">${escapeHtml(b.name)}${n > 0 ? `<span class="ba-count">×${n}</span>` : ''}</div>
             <div class="ba-cond">${badgeCondText(b)}</div>
           </div>
-          <button class="ba-toggle ${has ? 'revoke' : 'give'}">${has ? '회수' : '수여'}</button>
+          ${n > 0 ? `<button class="ba-toggle revoke" data-act="revoke">− 회수</button>` : ''}
+          <button class="ba-toggle give" data-act="give">＋ 수여</button>
         </div>
       `
     }).join('')
@@ -3254,8 +3268,8 @@ async function showBadgeManageModal(s) {
         <div class="modal modal-wide">
           <div class="modal-title">🏅 ${escapeHtml(s.nickname || s.name)} 뱃지 수여·회수</div>
           <div class="hint-text" style="margin-bottom:10px;">
-            자동(⚙️) 뱃지도 직접 수여·회수할 수 있어요.
-            단, 회수해도 조건이 계속 충족되면 다음 점수 부여 때 다시 붙습니다.
+            같은 뱃지를 여러 번 수여할 수 있고, 회수는 1개씩 거둬들여요.
+            자동(⚙️) 뱃지는 회수해도 조건이 계속 충족되면 다음 점수 부여 때 다시 붙습니다.
           </div>
           <div class="badge-award-list">${rows}</div>
           <div class="modal-actions">
@@ -3270,24 +3284,26 @@ async function showBadgeManageModal(s) {
     }
     container.querySelectorAll('.badge-award-item').forEach(item => {
       const id = item.dataset.id
-      item.querySelector('.ba-toggle').onclick = async () => {
-        try {
-          if (ownedIds.has(id)) {
-            await api(`/api/students/${s.id}/badges/${id}`, { method: 'DELETE' })
-            ownedIds.delete(id)
-            showToast('뱃지를 회수했어요', 'warning', '↩')
-          } else {
-            await api(`/api/students/${s.id}/badges/${id}`, { method: 'POST' })
-            ownedIds.add(id)
-            Sound.skillGet()
-            showToast('뱃지를 수여했어요!', 'success', '🏅')
+      item.querySelectorAll('.ba-toggle').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            if (btn.dataset.act === 'revoke') {
+              const r = await api(`/api/students/${s.id}/badges/${id}`, { method: 'DELETE' })
+              ownedCount.set(id, Number(r.count) || 0)
+              showToast('뱃지 1개를 회수했어요', 'warning', '↩')
+            } else {
+              const r = await api(`/api/students/${s.id}/badges/${id}`, { method: 'POST' })
+              ownedCount.set(id, Number(r.count) || (ownedCount.get(id) || 0) + 1)
+              Sound.skillGet()
+              showToast('뱃지를 수여했어요!', 'success', '🏅')
+            }
+            changed = true
+            render()
+          } catch (e) {
+            showToast(e.message, 'error')
           }
-          changed = true
-          render()
-        } catch (e) {
-          showToast(e.message, 'error')
         }
-      }
+      })
     })
   }
 

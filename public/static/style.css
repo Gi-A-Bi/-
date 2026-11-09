@@ -2905,6 +2905,15 @@ button {
   border: 1.5px solid rgba(255,255,255,.55);
   box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.5);
 }
+/* 같은 뱃지를 여러 번 땄을 때 카드 뱃지 구석의 작은 횟수 표시 */
+.tc-bd { position: relative; }
+.tc-bd-n {
+  position: absolute; right: -5px; bottom: -4px;
+  min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px;
+  font-style: normal; font-size: 8.5px; font-weight: 900; line-height: 13px; text-align: center;
+  color: #1a0f00; background: var(--gold); border: 1px solid rgba(0,0,0,.35);
+  box-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
 .tc-bd-more {
   flex-shrink: 0; font-size: 10.5px; font-weight: 900; color: #fff; padding: 2px 6px; border-radius: 10px;
   background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.35);
@@ -3723,6 +3732,14 @@ button {
   color: var(--gold-light);
 }
 .badge-chip .bc-emoji { font-size: 16px; }
+.badge-chip .bc-count {
+  font-size: 11px;
+  font-weight: 900;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(243, 199, 97, 0.28);
+  color: #fff3c4;
+}
 .badge-chip .bc-auto {
   font-size: 10px;
   font-weight: 700;
@@ -3757,6 +3774,10 @@ button {
 .badge-award-item .ba-emoji { font-size: 22px; }
 .badge-award-item .ba-info { flex: 1; min-width: 0; }
 .badge-award-item .ba-name { font-size: 14px; font-weight: 800; color: var(--text); }
+.badge-award-item .ba-count {
+  margin-left: 6px; font-size: 11px; font-weight: 900; padding: 1px 6px; border-radius: 999px;
+  background: rgba(243, 199, 97, 0.22); color: var(--gold-light);
+}
 .badge-award-item .ba-cond { font-size: 11.5px; color: var(--text-light); margin-top: 2px; }
 .badge-award-item .ba-toggle {
   padding: 8px 14px;
@@ -3772,6 +3793,7 @@ button {
   background: linear-gradient(135deg, var(--gold), var(--gold-dark));
   color: #1a0f00;
 }
+.badge-award-item .ba-toggle.revoke { padding: 8px 10px; }
 .badge-award-item .ba-toggle.revoke {
   background: rgba(239, 68, 68, 0.14);
   border: 1.5px solid rgba(239, 68, 68, 0.45);
@@ -3966,6 +3988,12 @@ button {
 .badge-prog .bp-emoji { font-size: 20px; filter: grayscale(0.85) opacity(0.75); }
 .badge-prog .bp-mid { flex: 1; min-width: 0; }
 .badge-prog .bp-name { font-size: 13px; font-weight: 800; color: var(--text-light); }
+/* 반복 획득 뱃지 — 지금까지 몇 번 땄는지 */
+.badge-prog .bp-earned {
+  margin-left: 6px; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+  background: rgba(243, 199, 97, 0.18); color: var(--gold-light);
+}
+.badge-progress-title .bp-hint { margin-left: 6px; font-size: 11px; font-weight: 600; opacity: .75; }
 .badge-prog .bp-bar {
   margin-top: 5px;
   height: 7px;

@@ -415,16 +415,11 @@ app.get('/api/classes/:classId/students', async (c) => {
     'badges',
     `select=id,name,emoji&class_id=eq.${classId}`,
   ).catch(() => [] as BadgeRow[])
-  const badgeById = new Map(badgeDefs.map(b => [b.id, b]))
 
   const enriched = students.map(s => {
     const e = enrichStudent(s, levels)
-    const earned_badges = (Array.isArray(s.badges) ? s.badges : [])
-      .map((eb: EarnedBadge) => {
-        const d = badgeById.get(eb.badge_id)
-        return d ? { badge_id: eb.badge_id, name: d.name, emoji: d.emoji, awarded_at: eb.awarded_at } : null
-      })
-      .filter(Boolean)
+    const earned_badges = groupEarnedBadges(s.badges, badgeDefs)
+      .map(g => ({ badge_id: g.badge_id, name: g.name, emoji: g.emoji, count: g.count, awarded_at: g.awarded_at }))
     return { ...e, earned_badges }
   })
   return c.json(enriched)
@@ -591,35 +586,29 @@ app.get('/api/students/:id', async (c) => {
     'badges',
     `select=*&class_id=eq.${student.class_id}`,
   ).catch(() => [] as BadgeRow[])
-  const earnedIds = new Set((Array.isArray(e.badges) ? e.badges : []).map((eb: EarnedBadge) => eb.badge_id))
-  const earnedBadges = (Array.isArray(e.badges) ? e.badges : [])
-    .map((eb: EarnedBadge) => {
-      const d = badgeDefs.find(b => b.id === eb.badge_id)
-      return d ? {
-        badge_id: eb.badge_id,
-        name: d.name,
-        emoji: d.emoji,
-        description: d.description,
-        auto: !!eb.auto,
-        awarded_at: eb.awarded_at,
-      } : null
-    })
-    .filter(Boolean)
+  const earnedAll: EarnedBadge[] = Array.isArray(e.badges) ? e.badges : []
+  const earnedBadges = groupEarnedBadges(earnedAll, badgeDefs)
 
-  // 아직 못 딴 자동 뱃지의 진행도 (레벨/XP는 즉시 계산, 활동 횟수는 로그 집계)
+  // 자동 뱃지 진행도 — 반복 획득 뱃지(XP/활동 횟수)는 딴 뒤에도 게이지가 0부터 다시 차오른다.
+  // 레벨 도달 뱃지는 한 번 따면 끝이라 진행도에서 빠진다.
   const badgeProgress: any[] = []
   for (const b of badgeDefs) {
-    if (!b.auto_type || earnedIds.has(b.id)) continue
+    if (!b.auto_type) continue
+    const haveAny = earnedAll.filter(eb => eb.badge_id === b.id).length
+    const haveAuto = earnedAll.filter(eb => eb.badge_id === b.id && eb.auto).length
+    const target = Math.max(1, Number(b.auto_value) || 1)
     let current = 0
-    const target = Number(b.auto_value) || 1
-    if (b.auto_type === 'level') current = e.level
-    else if (b.auto_type === 'xp') current = e.xp
-    else if (b.auto_type === 'activity_count' && b.auto_activity) {
+    if (b.auto_type === 'level') {
+      if (haveAny) continue
+      current = e.level
+    } else if (b.auto_type === 'xp') {
+      current = e.xp - haveAuto * target
+    } else if (b.auto_type === 'activity_count' && b.auto_activity) {
       const rows = await sb.select(
         'activity_logs',
         `select=id&student_id=eq.${student.id}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
       ).catch(() => [])
-      current = rows.length
+      current = rows.length - haveAuto * target
     }
     badgeProgress.push({
       badge_id: b.id,
@@ -627,8 +616,10 @@ app.get('/api/students/:id', async (c) => {
       emoji: b.emoji,
       auto_type: b.auto_type,
       auto_activity: b.auto_activity,
-      current: Math.min(current, target),
+      current: Math.max(0, Math.min(current, target)),
       target,
+      repeatable: isRepeatableBadge(b),
+      earned_count: haveAny,
     })
   }
 
@@ -769,27 +760,23 @@ async function applyScoreToStudent(
   }
 
   // === 자동 뱃지 판정 (레벨 도달 / 누적 XP / 활동 횟수) ===
+  // XP·활동 횟수 뱃지는 목표치를 채울 때마다 반복 획득한다 (100 XP마다, '발표' 5번마다 …).
+  // "지금까지 받았어야 할 개수"(= floor(누적 / 목표))와 이미 자동으로 받은 개수의 차이만큼 준다.
+  // 레벨 도달 뱃지는 한 번만.
   const earnedList: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
-  const newBadges: { badge_id: string; name: string; emoji: string }[] = []
+  const newBadges: { badge_id: string; name: string; emoji: string; count: number }[] = []
   const badgeLogs: ActivityLogRow[] = []
   for (const b of autoBadges) {
-    if (earnedList.some(e => e.badge_id === b.id)) continue
-    let ok = false
-    if (b.auto_type === 'level') {
-      ok = newLevel >= (b.auto_value || 0)
-    } else if (b.auto_type === 'xp') {
-      ok = newXp >= (b.auto_value || 0)
-    } else if (b.auto_type === 'activity_count' && b.auto_activity && b.auto_activity === activityName) {
-      // 이번 활동까지 포함해 해당 활동을 몇 번 했는지 (로그는 아직 저장 전이라 +1)
-      const rows = await sb.select(
-        'activity_logs',
-        `select=id&student_id=eq.${student.id}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
-      )
-      ok = rows.length + 1 >= (b.auto_value || 1)
-    }
-    if (ok) {
-      earnedList.push({ badge_id: b.id, awarded_at: new Date().toISOString(), auto: true })
-      newBadges.push({ badge_id: b.id, name: b.name, emoji: b.emoji })
+    if (b.auto_type === 'activity_count' && b.auto_activity !== activityName) continue
+    if (b.auto_type === 'level' && earnedList.some(e => e.badge_id === b.id)) continue
+    // 이번 활동 로그는 아직 저장 전이라 활동 횟수에 +1
+    const should = await autoBadgeShouldHave(sb, b, student.id, newXp, newLevel, b.auto_type === 'activity_count' ? 1 : 0)
+    const haveAuto = earnedList.filter(e => e.badge_id === b.id && e.auto).length
+    const times = should - haveAuto
+    if (times <= 0) continue
+    const nowIso = new Date().toISOString()
+    for (let i = 0; i < times; i++) {
+      earnedList.push({ badge_id: b.id, awarded_at: nowIso, auto: true })
       badgeLogs.push({
         class_id: student.class_id,
         student_id: student.id,
@@ -798,6 +785,7 @@ async function applyScoreToStudent(
         score: 0,
       })
     }
+    newBadges.push({ badge_id: b.id, name: b.name, emoji: b.emoji, count: times })
   }
 
   // === 코인 자동 적립 ===
@@ -1014,20 +1002,54 @@ function isUntouchedSkill(sk: OwnedSkill): boolean {
   return sk.uses_left >= total
 }
 
-// 자동 뱃지 조건이 (되돌린 뒤 기준으로) 아직 충족되는지
-async function autoBadgeStillMet(
-  sb: any, studentId: string, b: BadgeRow, xp: number, level: number,
-): Promise<boolean> {
-  if (b.auto_type === 'level') return level >= (b.auto_value || 0)
-  if (b.auto_type === 'xp') return xp >= (b.auto_value || 0)
+// 반복 획득 가능한 자동 뱃지인지 — XP/활동 횟수는 목표치마다 다시 딸 수 있고, 레벨 도달은 한 번만
+function isRepeatableBadge(b: BadgeRow): boolean {
+  return b.auto_type === 'xp' || b.auto_type === 'activity_count'
+}
+
+// 자동 조건 기준으로 "지금 이 학생이 자동으로 갖고 있어야 할 개수".
+//   level          → 도달했으면 1, 아니면 0
+//   xp             → floor(누적 XP / 목표)
+//   activity_count → floor((활동 횟수 + extraCount) / 목표)   (extraCount: 아직 저장 전인 이번 활동)
+async function autoBadgeShouldHave(
+  sb: any, b: BadgeRow, studentId: string, xp: number, level: number, extraCount = 0,
+): Promise<number> {
+  const target = Math.max(1, Number(b.auto_value) || 1)
+  if (b.auto_type === 'level') return level >= target ? 1 : 0
+  if (b.auto_type === 'xp') return Math.floor(Math.max(0, xp) / target)
   if (b.auto_type === 'activity_count' && b.auto_activity) {
     const rows = await sb.select(
       'activity_logs',
       `select=id&student_id=eq.${studentId}&type=eq.score&name=eq.${encodeURIComponent(b.auto_activity)}`,
     ).catch(() => [])
-    return rows.length >= (b.auto_value || 1)
+    return Math.floor((rows.length + extraCount) / target)
   }
-  return true   // 수동 뱃지 등 판단 불가 → 그대로 둠
+  return 0
+}
+
+// 학생의 획득 뱃지 배열을 뱃지별로 묶어 개수(count)와 함께 돌려줌 (삭제된 뱃지 정의는 제외)
+function groupEarnedBadges(list: EarnedBadge[] | undefined, defs: BadgeRow[]) {
+  const defById = new Map(defs.map(d => [d.id, d]))
+  const out: { badge_id: string; name: string; emoji: string; description: string | null; auto: boolean; count: number; awarded_at: string }[] = []
+  const idx = new Map<string, number>()
+  for (const eb of Array.isArray(list) ? list : []) {
+    const d = defById.get(eb.badge_id)
+    if (!d) continue
+    const at = idx.get(eb.badge_id)
+    if (at === undefined) {
+      idx.set(eb.badge_id, out.length)
+      out.push({
+        badge_id: eb.badge_id, name: d.name, emoji: d.emoji, description: d.description ?? null,
+        auto: !!eb.auto, count: 1, awarded_at: eb.awarded_at,
+      })
+    } else {
+      const g = out[at]
+      g.count++
+      g.auto = g.auto || !!eb.auto
+      if (String(eb.awarded_at) > String(g.awarded_at)) g.awarded_at = eb.awarded_at
+    }
+  }
+  return out
 }
 
 app.post('/api/students/:id/logs/:logId/undo', async (c) => {
@@ -1082,28 +1104,36 @@ app.post('/api/students/:id/logs/:logId/undo', async (c) => {
     }
   }
 
-  // (3) 조건이 깨진 자동 뱃지 회수
+  // (3) 조건이 깨진 자동 뱃지 회수 — 반복 획득 뱃지는 "갖고 있어야 할 개수"를 넘는 최근 것부터 그만큼만
   const earned: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
-  const revokedBadges: { name: string; emoji: string }[] = []
+  const revokedBadges: { name: string; emoji: string; count: number }[] = []
   if (earned.some(e => e.auto)) {
     const defs = await sb.select<BadgeRow>(
       'badges',
       `select=*&class_id=eq.${student.class_id}`,
     ).catch(() => [] as BadgeRow[])
-    const keptBadges: EarnedBadge[] = []
-    for (const eb of earned) {
-      const def = eb.auto ? defs.find(b => b.id === eb.badge_id) : null
-      if (!def || !def.auto_type) { keptBadges.push(eb); continue }
-      const stillMet = await autoBadgeStillMet(sb, id, def, newXp, newLevel)
-      if (stillMet) { keptBadges.push(eb); continue }
-      revokedBadges.push({ name: def.name, emoji: def.emoji })
-      // 획득 기록도 지워 활동 기록이 어긋나지 않게
-      await sb.delete(
+    const drop = new Set<EarnedBadge>()
+    for (const def of defs) {
+      if (!def.auto_type) continue
+      const autoEntries = earned
+        .filter(eb => eb.auto && eb.badge_id === def.id)
+        .sort((a, b) => String(a.awarded_at).localeCompare(String(b.awarded_at)))
+      if (!autoEntries.length) continue
+      const should = await autoBadgeShouldHave(sb, def, id, newXp, newLevel)
+      const excess = autoEntries.length - should
+      if (excess <= 0) continue
+      autoEntries.slice(-excess).forEach(eb => drop.add(eb))
+      revokedBadges.push({ name: def.name, emoji: def.emoji, count: excess })
+      // 획득 기록도 같은 개수만큼(최근 것부터) 지워 활동 기록이 어긋나지 않게
+      const logRows = await sb.select<{ id: string }>(
         'activity_logs',
-        `student_id=eq.${id}&type=eq.badge&name=eq.${encodeURIComponent(`뱃지 획득: ${def.emoji} ${def.name}`)}`,
-      ).catch(() => {})
+        `select=id&student_id=eq.${id}&type=eq.badge&name=eq.${encodeURIComponent(`뱃지 획득: ${def.emoji} ${def.name}`)}&order=created_at.desc,id.desc&limit=${excess}`,
+      ).catch(() => [] as { id: string }[])
+      if (logRows.length) {
+        await sb.delete('activity_logs', `id=in.(${logRows.map(r => r.id).join(',')})`).catch(() => {})
+      }
     }
-    if (revokedBadges.length) patch.badges = keptBadges
+    if (drop.size) patch.badges = earned.filter(eb => !drop.has(eb))
   }
 
   // (4) XP 자동 적립으로 줬던 코인 되돌리기 (직접 준 코인·쓴 코인은 건드리지 않음)
@@ -1889,22 +1919,23 @@ app.post('/api/students/:id/badges/:badgeId', async (c) => {
   const badge = found[0]
   if (!badge) return c.json({ error: '뱃지를 찾을 수 없습니다' }, 404)
 
+  // 같은 뱃지를 여러 번 수여할 수 있다 (반복 획득) — 누를 때마다 1개씩 쌓임
   const earned: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
-  if (!earned.some(e => e.badge_id === badgeId)) {
-    earned.push({ badge_id: badgeId, awarded_at: new Date().toISOString(), auto: false })
-    await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
-    await sb.insert('activity_logs', [{
-      class_id: student.class_id,
-      student_id: student.id,
-      type: 'badge',
-      name: `뱃지 획득: ${badge.emoji} ${badge.name}`,
-      score: 0,
-    }], false)
-  }
-  return c.json({ success: true, badges: earned })
+  earned.push({ badge_id: badgeId, awarded_at: new Date().toISOString(), auto: false })
+  await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
+  await sb.insert('activity_logs', [{
+    class_id: student.class_id,
+    student_id: student.id,
+    type: 'badge',
+    name: `뱃지 획득: ${badge.emoji} ${badge.name}`,
+    score: 0,
+  }], false)
+  const count = earned.filter(e => e.badge_id === badgeId).length
+  return c.json({ success: true, badges: earned, count })
 })
 
-// 수여 취소 (잘못 준 경우) — 자동 뱃지는 조건이 계속 충족되면 다음 점수 부여 때 다시 붙음
+// 수여 취소 (잘못 준 경우) — 해당 뱃지를 1개만(가장 최근 것) 거둬들인다.
+// 자동 뱃지는 조건이 계속 충족되면 다음 점수 부여 때 다시 붙음
 app.delete('/api/students/:id/badges/:badgeId', async (c) => {
   const id = c.req.param('id')
   const badgeId = c.req.param('badgeId')
@@ -1912,11 +1943,17 @@ app.delete('/api/students/:id/badges/:badgeId', async (c) => {
   if (result instanceof Response) return result
   const { student } = result
 
-  const earned: EarnedBadge[] = (Array.isArray(student.badges) ? student.badges : [])
-    .filter(e => e.badge_id !== badgeId)
+  const earned: EarnedBadge[] = Array.isArray(student.badges) ? [...student.badges] : []
+  let dropIdx = -1
+  earned.forEach((e, i) => {
+    if (e.badge_id !== badgeId) return
+    if (dropIdx < 0 || String(e.awarded_at) >= String(earned[dropIdx].awarded_at)) dropIdx = i
+  })
+  if (dropIdx >= 0) earned.splice(dropIdx, 1)
   const sb = makeSupabase(c.env)
   await sb.update('students', { badges: earned }, `id=eq.${id}`, false)
-  return c.json({ success: true, badges: earned })
+  const count = earned.filter(e => e.badge_id === badgeId).length
+  return c.json({ success: true, badges: earned, count })
 })
 
 // =================================================================
