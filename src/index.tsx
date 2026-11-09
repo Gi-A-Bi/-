@@ -1188,6 +1188,26 @@ app.post('/api/students/:id/hp', async (c) => {
 })
 
 // =================================================================
+// 학급 전체 하트(HP) 복구
+//   - 학급의 모든 학생 hp 를 최대치로 되돌린다 (메인 화면 ❤️ 버튼)
+// =================================================================
+app.post('/api/classes/:classId/hp-restore', async (c) => {
+  const classId = c.req.param('classId')
+  const owned = await loadOwnedClass(c, classId)
+  if (owned instanceof Response) return owned
+
+  const sb = makeSupabase(c.env)
+  const maxHp = 3
+  const updated = await sb.update<{ id: string }>(
+    'students',
+    { hp: maxHp },
+    `class_id=eq.${classId}&select=id`,
+    true,
+  )
+  return c.json({ success: true, hp: maxHp, count: Array.isArray(updated) ? updated.length : 0 })
+})
+
+// =================================================================
 // 스킬 사용
 // =================================================================
 app.post('/api/students/:id/skills/:uid/use', async (c) => {

@@ -1088,6 +1088,7 @@ async function renderList() {
       <div class="view-title">
         <span>🏰</span> ${className}
         <span class="class-meta">${students.length}명</span>
+        <button class="btn-hp-restore" id="btn-hp-restore" title="모든 학생의 하트를 가득 채웁니다">❤️<span> 하트 복구</span></button>
         <button class="btn-multi ${state.multiSelect ? 'active' : ''}" id="btn-multi">
           ${state.multiSelect ? '✕ 선택 끝내기' : '☑️ 여러 명 XP'}
         </button>
@@ -1179,6 +1180,7 @@ async function renderList() {
   document.getElementById('btn-add-student').onclick = showAddStudentModal
   document.getElementById('btn-class-xp').onclick = showClassXpModal
   document.getElementById('btn-multi').onclick = toggleMultiSelect
+  document.getElementById('btn-hp-restore').onclick = confirmRestoreAllHp
 
   main.querySelectorAll('.tcard').forEach(card => {
     card.addEventListener('click', () => {
@@ -2259,6 +2261,27 @@ async function undoScoreLog(studentId, logId, activityName, onDone) {
       }
     },
   )
+}
+
+// 메인 화면 ❤️ 버튼 — 확인 후 학급 전체 하트를 최대치로 복구
+function confirmRestoreAllHp() {
+  const n = Array.isArray(state.students) ? state.students.length : 0
+  showConfirm(
+    '❤️ 하트 복구',
+    `학생 ${n}명의 하트를 모두 가득 채울까요?`,
+    restoreAllHp,
+  )
+}
+
+async function restoreAllHp() {
+  try {
+    const res = await api(`/api/classes/${state.classId}/hp-restore`, { method: 'POST' })
+    Sound.hpUp()
+    showToast(`학생 ${res.count ?? 0}명의 하트를 복구했어요`, 'success', '❤️')
+    await renderList()
+  } catch (e) {
+    showToast('하트 복구 실패: ' + e.message, 'error')
+  }
 }
 
 async function adjustHp(studentId, delta) {
