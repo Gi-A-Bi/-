@@ -2958,8 +2958,10 @@ button {
     conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
   box-shadow: 0 10px 18px rgba(0,0,0,.4);
 }
-.tcard.rank-diamond .tc-foil {
-  opacity: .6; mix-blend-mode: screen;
+.tcard.rank-diamond .tc-foil { opacity: .6; mix-blend-mode: screen; overflow: hidden; border-radius: 14px; }
+/* 실제 홀로 무늬는 220% 크기의 ::before 에 그리고, 이 레이어를 transform 으로만 움직인다 (아래 #3 참고) */
+.tcard.rank-diamond .tc-foil::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 220%; height: 220%;
   background: linear-gradient(115deg, rgba(255,0,128,.4) 6%, rgba(0,229,255,.4) 44%, rgba(64,255,128,.32) 62%, rgba(180,90,255,.4) 84%), repeating-linear-gradient(68deg, rgba(255,255,255,.14) 0 5px, transparent 5px 13px);
 }
 .tcard.rank-diamond .tc-corner { opacity: 1; color: #eafcff; filter: drop-shadow(0 0 4px #7df9ff); }
@@ -2969,6 +2971,18 @@ button {
 
 /* =================================================================
    #3 다이아 홀로그램 애니메이션 (움직이는 무지개 + 반짝임)
+   -----------------------------------------------------------------
+   [성능 메모] 예전에는 @property 로 등록한 --holo 각도를 돌려 conic-gradient
+   테두리를 회전시키고, 홀로 sheen 은 background-position 을 움직였다. 둘 다
+   매 프레임 카드 전체를 메인 스레드에서 다시 래스터해야 해서(GPU 합성 불가)
+   전자칠판처럼 GPU 가 약한 기기에서는 스크롤 중 깜빡임·끊김의 원인이 됐다.
+   지금은
+     · 테두리: 카드보다 큰 원형 conic-gradient 판(::before)을 transform: rotate 로 회전
+     · sheen : 220% 크기 레이어(.tc-foil::before)를 transform: translate 로 이동
+   하도록 바꿔 컴포지터(GPU)에서만 처리되게 했다. 테두리 판이 border 영역까지
+   보이려면 카드의 넘침 잘라내기 기준을 border-box 로 바꿔야 해서
+   overflow: clip + overflow-clip-margin: border-box 를 쓰고(#3b),
+   이를 지원하지 않는 브라우저는 아래 폴백(예전 방식)을 그대로 쓴다.
    ================================================================= */
 @property --holo {
   syntax: '<angle>';
@@ -2976,19 +2990,26 @@ button {
   initial-value: 0deg;
 }
 @keyframes holo-rotate { to { --holo: 360deg; } }
-@keyframes holo-shimmer {
-  0%, 100% { background-position: 0% 0%; }
-  50% { background-position: 100% 100%; }
+/* GPU 친화 키프레임 */
+@keyframes holo-spin { to { transform: rotate(360deg); } }
+/* 220% 크기 레이어를 자기 크기의 54.55% (= 컨테이너의 120%) 만큼 이동
+   → 예전 background-size 220% + background-position 0%→100% 와 같은 궤적 */
+@keyframes holo-shimmer-slide {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-54.55%, -54.55%, 0); }
 }
-/* 목록 카드 다이아: 회전하는 무지개 테두리 + 흐르는 홀로 sheen */
-.tcard.rank-diamond {
-  background: linear-gradient(#161228, #161228) padding-box,
-    conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
-  animation: holo-rotate 7s linear infinite;
+/* 홀로 sheen: 브라우저와 무관하게 항상 transform 기반 */
+.tcard.rank-diamond .tc-foil::before {
+  will-change: transform;
+  animation: holo-shimmer-slide 4.5s ease-in-out infinite;
 }
-.tcard.rank-diamond .tc-foil {
-  background-size: 220% 220%;
-  animation: holo-shimmer 4.5s ease-in-out infinite;
+/* 폴백: overflow-clip-margin 미지원 브라우저는 예전 페인트 기반 회전 테두리 유지 */
+@supports not (overflow-clip-margin: border-box) {
+  .tcard.rank-diamond {
+    background: linear-gradient(#161228, #161228) padding-box,
+      conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+    animation: holo-rotate 7s linear infinite;
+  }
 }
 
 /* =================================================================
@@ -2996,30 +3017,16 @@ button {
    용암 금빛 회전 프레임 + 맥동하는 후광 + 회전 광선 + 궤도 링 + 왕관
    + 떠오르는 별 파티클 + 렌즈 플레어 스윕 + 금박 홀로 + 그라데이션 금문자
    ================================================================= */
-@keyframes legend-pulse {
-  0%, 100% {
-    box-shadow:
-      0 12px 22px rgba(0,0,0,.5),
-      0 0 0 2px rgba(255,236,170,.65),
-      0 0 22px rgba(255,200,60,.65),
-      0 0 54px rgba(255,120,30,.38);
-  }
-  50% {
-    box-shadow:
-      0 14px 26px rgba(0,0,0,.5),
-      0 0 0 2px rgba(255,250,220,.95),
-      0 0 38px rgba(255,215,90,.95),
-      0 0 92px rgba(255,140,40,.6);
-  }
-}
 @keyframes legend-rays { to { transform: rotate(360deg); } }
 @keyframes legend-breathe {
   0%, 100% { opacity: .75; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.08); }
 }
+/* 300% 폭 플레어 레이어를 transform 으로 왼쪽→오른쪽 스윕
+   (예전 background-size 300% + background-position 220%→-120% 와 같은 궤적) */
 @keyframes legend-sweep {
-  0% { background-position: 220% 0; }
-  55%, 100% { background-position: -120% 0; }
+  0% { transform: translate3d(-146.67%, 0, 0); }
+  55%, 100% { transform: translate3d(80%, 0, 0); }
 }
 @keyframes legend-orbit {
   from { transform: translate(-50%, -50%) rotateX(68deg) rotateZ(0deg); }
@@ -3044,21 +3051,37 @@ button {
   0%, 100% { opacity: .55; transform: translateY(-50%) scale(1); }
   50%      { opacity: 1;   transform: translateY(-50%) scale(1.18); }
 }
-@keyframes legend-frame-glow {
-  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255,236,170,.55), inset 0 0 18px rgba(255,190,60,.25); }
-  50%      { box-shadow: inset 0 0 0 1px rgba(255,250,220,.95), inset 0 0 30px rgba(255,210,90,.5); }
+/* 안쪽 액자 숨쉬기: box-shadow 대신 opacity 만 바꿔 GPU 합성 */
+@keyframes legend-frame-breathe {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
 }
 
-/* 카드 본체: 회전하는 용암 금빛 프레임 + 맥동하는 바깥 후광 */
+/* 카드 본체: 회전하는 용암 금빛 프레임 + 바깥 후광
+   (후광은 예전에 box-shadow 를 맥동시켰지만 매 프레임 리페인트라 고정값으로 바꿈) */
 .tcard.rank-legend {
   border: 10px solid transparent;
   background:
     linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%) padding-box,
-    conic-gradient(from var(--holo),
+    conic-gradient(from 0deg,
       #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
       #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
-  animation: holo-rotate 4s linear infinite, legend-pulse 2.6s ease-in-out infinite;
+  box-shadow:
+    0 13px 24px rgba(0,0,0,.5),
+    0 0 0 2px rgba(255,243,195,.8),
+    0 0 30px rgba(255,208,75,.8),
+    0 0 72px rgba(255,130,35,.5);
   z-index: 1;
+}
+@supports not (overflow-clip-margin: border-box) {
+  .tcard.rank-legend {
+    background:
+      linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%) padding-box,
+      conic-gradient(from var(--holo),
+        #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+        #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+    animation: holo-rotate 4s linear infinite;
+  }
 }
 .tcard.rank-legend:hover { transform: translateY(-6px) scale(1.02); }
 
@@ -3069,7 +3092,8 @@ button {
   border: 1.5px solid rgba(255, 236, 170, .9);
   outline: 1px dashed rgba(255, 240, 200, .45);
   outline-offset: -5px;
-  animation: legend-frame-glow 2.6s ease-in-out infinite;
+  box-shadow: inset 0 0 0 1px rgba(255,250,220,.95), inset 0 0 30px rgba(255,210,90,.5);
+  animation: legend-frame-breathe 2.6s ease-in-out infinite;
 }
 
 /* 아트 뒤 후광 + 회전 광선 */
@@ -3092,21 +3116,25 @@ button {
 }
 
 /* 금박 프리즘 홀로 (다이아 무지개의 금빛 버전) */
-.tcard.rank-legend .tc-foil {
-  opacity: .62; mix-blend-mode: screen;
+.tcard.rank-legend .tc-foil { opacity: .62; mix-blend-mode: screen; overflow: hidden; border-radius: 12px; }
+.tcard.rank-legend .tc-foil::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 220%; height: 220%;
   background:
     linear-gradient(115deg, rgba(255,215,0,.42) 4%, rgba(255,255,255,.14) 30%, rgba(255,110,60,.36) 52%, rgba(200,130,255,.34) 72%, rgba(255,225,120,.42) 96%),
     repeating-linear-gradient(62deg, rgba(255,255,255,.16) 0 4px, transparent 4px 12px);
-  background-size: 220% 220%, auto;
-  animation: holo-shimmer 3.6s ease-in-out infinite;
+  will-change: transform;
+  animation: holo-shimmer-slide 3.6s ease-in-out infinite;
 }
 
 /* 렌즈 플레어 스윕 (주기적으로 번쩍) */
 .tcard.rank-legend .tc-lg-flare {
   position: absolute; inset: 0; z-index: 5; pointer-events: none; mix-blend-mode: screen;
+  overflow: hidden; border-radius: 12px;
+}
+.tcard.rank-legend .tc-lg-flare::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 300%; height: 100%;
   background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.18) 47%, rgba(255,255,255,.75) 50%, rgba(255,255,255,.18) 53%, transparent 58%);
-  background-size: 300% 100%;
-  background-repeat: no-repeat;
+  will-change: transform;
   animation: legend-sweep 3.4s ease-in-out infinite;
 }
 
@@ -3230,23 +3258,36 @@ button {
 .detail-hero.rank-diamond {
   border: 5px solid transparent;
   background: var(--card-bg) padding-box,
-    conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
-  animation: holo-rotate 7s linear infinite;
+    conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
   box-shadow: var(--shadow-lg), 0 0 40px rgba(120,220,255,.5), 0 0 70px rgba(255,120,200,.35);
-}
-@keyframes legend-pulse-hero {
-  0%, 100% { box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,236,170,.6), 0 0 40px rgba(255,200,70,.55), 0 0 90px rgba(255,120,30,.3); }
-  50%      { box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,250,220,.95), 0 0 60px rgba(255,215,90,.85), 0 0 130px rgba(255,140,40,.5); }
 }
 .detail-hero.rank-legend {
   border: 6px solid transparent;
   background:
     radial-gradient(ellipse at top, rgba(255, 200, 80, 0.22) 0%, transparent 60%) padding-box,
     linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%) padding-box,
-    conic-gradient(from var(--holo),
+    conic-gradient(from 0deg,
       #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
       #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
-  animation: holo-rotate 4s linear infinite, legend-pulse-hero 2.6s ease-in-out infinite;
+  /* 후광 맥동(box-shadow 애니메이션)은 매 프레임 리페인트라 고정값으로 */
+  box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,243,195,.8), 0 0 50px rgba(255,208,80,.7), 0 0 110px rgba(255,130,35,.4);
+}
+/* 폴백: overflow-clip-margin 미지원 브라우저는 예전 페인트 기반 회전 테두리 유지 */
+@supports not (overflow-clip-margin: border-box) {
+  .detail-hero.rank-diamond {
+    background: var(--card-bg) padding-box,
+      conic-gradient(from var(--holo), #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+    animation: holo-rotate 7s linear infinite;
+  }
+  .detail-hero.rank-legend {
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 80, 0.22) 0%, transparent 60%) padding-box,
+      linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%) padding-box,
+      conic-gradient(from var(--holo),
+        #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+        #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+    animation: holo-rotate 4s linear infinite;
+  }
 }
 .detail-hero.rank-legend::before {
   background:
@@ -3301,11 +3342,164 @@ button {
 .app-header { border-bottom: 1px solid rgba(243,199,97,0.28); box-shadow: 0 4px 18px rgba(0,0,0,0.35); }
 
 /* =================================================================
+   #3b GPU 친화 등급 프레임 (overflow-clip-margin 지원: Chrome/Edge 90+ 등)
+   - ::before : 카드보다 큰 원형 conic-gradient 판을 transform 으로 회전 (테두리 역할)
+   - ::after  : 안쪽(padding-box)을 덮는 어두운 판 → 테두리 띠만 남는다
+   - overflow 클립 기준이 border-box 가 되므로 안쪽 레이어들에는 예전 padding-box
+     클립과 같은 모서리 반경(바깥 반경 − 테두리 두께)을 직접 준다
+   ================================================================= */
+@supports (overflow-clip-margin: border-box) {
+  .tcard.rank-diamond, .tcard.rank-legend {
+    overflow: clip;
+    overflow-clip-margin: border-box;
+    animation: none;
+  }
+  .tcard.rank-diamond { --tc-r: 14px; background: #161228; } /* 22px − 8px */
+  .tcard.rank-legend  { --tc-r: 12px; background: #180826; } /* 22px − 10px */
+
+  .tcard.rank-diamond::before, .tcard.rank-legend::before,
+  .tcard.rank-diamond::after,  .tcard.rank-legend::after { content: ''; position: absolute; pointer-events: none; }
+  .tcard.rank-diamond::before, .tcard.rank-legend::before {
+    z-index: -2;
+    left: 50%; top: 50%; width: 200%; aspect-ratio: 1;
+    margin-left: -100%; margin-top: -100%;
+    border-radius: 50%;
+    will-change: transform;
+  }
+  .tcard.rank-diamond::before {
+    background: conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d);
+    animation: holo-spin 7s linear infinite;
+  }
+  .tcard.rank-legend::before {
+    background: conic-gradient(from 0deg,
+      #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+      #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf);
+    animation: holo-spin 4s linear infinite;
+  }
+  .tcard.rank-diamond::after, .tcard.rank-legend::after { z-index: -1; inset: 0; border-radius: var(--tc-r); }
+  .tcard.rank-diamond::after { background: #161228; }
+  .tcard.rank-legend::after  { background: linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%); }
+
+  .tcard.rank-diamond .tc-art, .tcard.rank-legend .tc-art { border-radius: var(--tc-r); overflow: hidden; }
+  .tcard.rank-diamond .tc-gloss, .tcard.rank-legend .tc-gloss,
+  .tcard.rank-diamond .tc-check, .tcard.rank-legend .tc-check,
+  .tcard.rank-legend .tc-lg-aura, .tcard.rank-legend .tc-lg-particles { border-radius: var(--tc-r); }
+  .tcard.rank-diamond .tc-info, .tcard.rank-legend .tc-info { border-radius: 0 0 var(--tc-r) var(--tc-r); }
+
+  /* 상세 화면 히어로도 같은 방식 (::before 는 원래 있던 틴트 레이어를 안쪽 덮개로 재활용) */
+  .detail-hero.rank-diamond, .detail-hero.rank-legend {
+    isolation: isolate;
+    overflow: clip;
+    overflow-clip-margin: border-box;
+    animation: none;
+  }
+  .detail-hero.rank-diamond { background: var(--card-bg); }
+  .detail-hero.rank-legend  { background: #190826; }
+  .detail-hero.rank-diamond::after, .detail-hero.rank-legend::after {
+    content: ''; position: absolute; pointer-events: none; z-index: -2;
+    left: 50%; top: 50%; width: 250%; aspect-ratio: 1;
+    margin-left: -125%; margin-top: -125%;
+    border-radius: 50%;
+    will-change: transform;
+  }
+  .detail-hero.rank-diamond::after {
+    background: conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d);
+    animation: holo-spin 7s linear infinite;
+  }
+  .detail-hero.rank-legend::after {
+    background: conic-gradient(from 0deg,
+      #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf,
+      #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf);
+    animation: holo-spin 4s linear infinite;
+  }
+  .detail-hero.rank-diamond::before, .detail-hero.rank-legend::before { z-index: -1; }
+  .detail-hero.rank-diamond::before {
+    border-radius: 11px; /* 16px − 5px */
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(243, 199, 97, 0.2) 0%, transparent 60%),
+      var(--card-bg);
+  }
+  .detail-hero.rank-legend::before {
+    border-radius: 10px; /* 16px − 6px */
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(255, 210, 90, 0.32) 0%, transparent 60%),
+      repeating-conic-gradient(from 0deg at 50% 18%, rgba(255,225,130,.09) 0deg 5deg, transparent 5deg 14deg),
+      radial-gradient(ellipse at top, rgba(255, 200, 80, 0.22) 0%, transparent 60%),
+      linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%);
+  }
+}
+
+/* 스크롤 중에는 등급 카드의 상시 애니메이션을 잠시 멈춘다 (app.js 가 html.is-scrolling 토글)
+   → 전자칠판처럼 GPU 가 약한 기기에서 스크롤 프레임을 애니메이션과 나눠 쓰지 않게 */
+html.is-scrolling .tcard.rank-diamond,
+html.is-scrolling .tcard.rank-diamond::before,
+html.is-scrolling .tcard.rank-diamond .tc-foil::before,
+html.is-scrolling .tcard.rank-legend,
+html.is-scrolling .tcard.rank-legend::before,
+html.is-scrolling .tcard.rank-legend *,
+html.is-scrolling .tcard.rank-legend *::before,
+html.is-scrolling .detail-hero.rank-diamond,
+html.is-scrolling .detail-hero.rank-diamond::after,
+html.is-scrolling .detail-hero.rank-legend,
+html.is-scrolling .detail-hero.rank-legend::after { animation-play-state: paused !important; }
+
+/* =================================================================
+   #3c 저사양(전자칠판) 모드 — 설정 > 계정에서 기기별로 켬 (html.lite-fx)
+   GPU 가 약하거나 하드웨어 가속이 꺼진 기기용. 상시 애니메이션·블렌드 레이어·
+   필터·고정 배경을 모두 끄고 등급 테두리는 정적인 그라데이션으로만 그린다.
+   ================================================================= */
+html.lite-fx .tcard.rank-diamond, html.lite-fx .tcard.rank-legend,
+html.lite-fx .tcard.rank-diamond::before, html.lite-fx .tcard.rank-legend::before,
+html.lite-fx .tcard.rank-diamond *, html.lite-fx .tcard.rank-legend *,
+html.lite-fx .tcard.rank-diamond *::before, html.lite-fx .tcard.rank-legend *::before,
+html.lite-fx .detail-hero.rank-diamond, html.lite-fx .detail-hero.rank-legend,
+html.lite-fx .detail-hero.rank-diamond::after, html.lite-fx .detail-hero.rank-legend::after,
+html.lite-fx .rank-legend { animation: none !important; will-change: auto !important; }
+
+/* 회전 판/덮개 가상요소는 쓰지 않고 테두리를 배경으로 직접 그림 (정적) */
+html.lite-fx .tcard.rank-diamond::before, html.lite-fx .tcard.rank-diamond::after,
+html.lite-fx .tcard.rank-legend::before,  html.lite-fx .tcard.rank-legend::after,
+html.lite-fx .detail-hero.rank-diamond::after, html.lite-fx .detail-hero.rank-legend::after { display: none; }
+html.lite-fx .tcard.rank-diamond {
+  background: linear-gradient(#161228, #161228) padding-box,
+    conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+}
+html.lite-fx .tcard.rank-legend {
+  background: linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%) padding-box,
+    conic-gradient(from 0deg, #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf, #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  box-shadow: 0 10px 18px rgba(0,0,0,.4), 0 0 0 2px rgba(255,236,170,.6);
+}
+html.lite-fx .detail-hero.rank-diamond {
+  background: var(--card-bg) padding-box, conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+  box-shadow: var(--shadow-lg);
+}
+html.lite-fx .detail-hero.rank-legend {
+  background: linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%) padding-box,
+    conic-gradient(from 0deg, #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf, #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,236,170,.6);
+}
+
+/* 블렌드·발광·파티클 레이어 제거, 비싼 필터 해제 */
+html.lite-fx .tcard .tc-foil, html.lite-fx .tc-lg-flare, html.lite-fx .tc-lg-particles,
+html.lite-fx .tc-lg-rays, html.lite-fx .tc-lg-aura, html.lite-fx .tc-lg-ring,
+html.lite-fx .tc-spark { display: none; }
+html.lite-fx .tcard .tc-corner, html.lite-fx .tcard .tc-lg-crown, html.lite-fx .tcard .tc-name,
+html.lite-fx .tcard .tc-em, html.lite-fx .detail-hero .detail-nickname { filter: none !important; }
+html.lite-fx .tcard { transition: none; }
+html.lite-fx .tcard:hover { transform: none; }
+
+/* 고정 배경은 스크롤마다 화면 전체를 다시 그리게 하므로 해제 */
+html.lite-fx body { background-attachment: scroll; }
+html.lite-fx body::before { display: none; }
+
+/* =================================================================
    #4 미세 조정 — 접근성: 모션 최소화 선호 시 애니메이션 정지
    ================================================================= */
 @media (prefers-reduced-motion: reduce) {
-  .tcard.rank-diamond, .detail-hero.rank-diamond, .tcard.rank-diamond .tc-foil { animation: none; }
-  .tcard.rank-legend, .detail-hero.rank-legend, .tcard.rank-legend *, .rank-legend { animation: none !important; }
+  .tcard.rank-diamond, .tcard.rank-diamond::before, .tcard.rank-diamond .tc-foil::before,
+  .detail-hero.rank-diamond, .detail-hero.rank-diamond::after { animation: none !important; }
+  .tcard.rank-legend, .tcard.rank-legend::before, .tcard.rank-legend *, .tcard.rank-legend *::before,
+  .detail-hero.rank-legend, .detail-hero.rank-legend::after, .rank-legend { animation: none !important; }
   .tcard.rank-legend .tc-lg-particles, .tcard.rank-legend .tc-lg-flare { display: none; }
 }
 
@@ -3849,6 +4043,18 @@ button {
   cursor: pointer;
 }
 .account-btn:disabled { opacity: 0.5; cursor: default; }
+/* 저사양 모드 토글: 꺼짐은 테두리만, 켜짐은 차분한 청록 */
+.account-btn.lite-fx-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid var(--card-border-dim);
+  color: var(--text);
+  text-align: left;
+}
+.account-btn.lite-fx-btn.on {
+  background: rgba(45, 212, 191, 0.16);
+  border-color: rgba(45, 212, 191, 0.6);
+  color: #99f6e4;
+}
 .account-btn.danger {
   background: rgba(239, 68, 68, 0.12);
   border: 1.5px solid rgba(239, 68, 68, 0.45);
