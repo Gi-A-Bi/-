@@ -3435,6 +3435,55 @@ html.is-scrolling .detail-hero.rank-legend,
 html.is-scrolling .detail-hero.rank-legend::after { animation-play-state: paused !important; }
 
 /* =================================================================
+   #3c 저사양(전자칠판) 모드 — 설정 > 계정에서 기기별로 켬 (html.lite-fx)
+   GPU 가 약하거나 하드웨어 가속이 꺼진 기기용. 상시 애니메이션·블렌드 레이어·
+   필터·고정 배경을 모두 끄고 등급 테두리는 정적인 그라데이션으로만 그린다.
+   ================================================================= */
+html.lite-fx .tcard.rank-diamond, html.lite-fx .tcard.rank-legend,
+html.lite-fx .tcard.rank-diamond::before, html.lite-fx .tcard.rank-legend::before,
+html.lite-fx .tcard.rank-diamond *, html.lite-fx .tcard.rank-legend *,
+html.lite-fx .tcard.rank-diamond *::before, html.lite-fx .tcard.rank-legend *::before,
+html.lite-fx .detail-hero.rank-diamond, html.lite-fx .detail-hero.rank-legend,
+html.lite-fx .detail-hero.rank-diamond::after, html.lite-fx .detail-hero.rank-legend::after,
+html.lite-fx .rank-legend { animation: none !important; will-change: auto !important; }
+
+/* 회전 판/덮개 가상요소는 쓰지 않고 테두리를 배경으로 직접 그림 (정적) */
+html.lite-fx .tcard.rank-diamond::before, html.lite-fx .tcard.rank-diamond::after,
+html.lite-fx .tcard.rank-legend::before,  html.lite-fx .tcard.rank-legend::after,
+html.lite-fx .detail-hero.rank-diamond::after, html.lite-fx .detail-hero.rank-legend::after { display: none; }
+html.lite-fx .tcard.rank-diamond {
+  background: linear-gradient(#161228, #161228) padding-box,
+    conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+}
+html.lite-fx .tcard.rank-legend {
+  background: linear-gradient(160deg, #2a0f2e 0%, #180826 45%, #2a0c0c 100%) padding-box,
+    conic-gradient(from 0deg, #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf, #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  box-shadow: 0 10px 18px rgba(0,0,0,.4), 0 0 0 2px rgba(255,236,170,.6);
+}
+html.lite-fx .detail-hero.rank-diamond {
+  background: var(--card-bg) padding-box, conic-gradient(from 0deg, #ff6b9d, #feca57, #48dbfb, #1dd1a1, #a55eea, #ff6b9d, #48dbfb, #ff6b9d) border-box;
+  box-shadow: var(--shadow-lg);
+}
+html.lite-fx .detail-hero.rank-legend {
+  background: linear-gradient(160deg, #2e1030 0%, #190826 50%, #2a0c0c 100%) padding-box,
+    conic-gradient(from 0deg, #fff7cf, #ffd54a, #ff9d1f, #ff3d3d, #ff9d1f, #fff7cf, #ffd54a, #c084fc, #ffd54a, #fff7cf, #ff9d1f, #fff7cf) border-box;
+  box-shadow: var(--shadow-lg), 0 0 0 2px rgba(255,236,170,.6);
+}
+
+/* 블렌드·발광·파티클 레이어 제거, 비싼 필터 해제 */
+html.lite-fx .tcard .tc-foil, html.lite-fx .tc-lg-flare, html.lite-fx .tc-lg-particles,
+html.lite-fx .tc-lg-rays, html.lite-fx .tc-lg-aura, html.lite-fx .tc-lg-ring,
+html.lite-fx .tc-spark { display: none; }
+html.lite-fx .tcard .tc-corner, html.lite-fx .tcard .tc-lg-crown, html.lite-fx .tcard .tc-name,
+html.lite-fx .tcard .tc-em, html.lite-fx .detail-hero .detail-nickname { filter: none !important; }
+html.lite-fx .tcard { transition: none; }
+html.lite-fx .tcard:hover { transform: none; }
+
+/* 고정 배경은 스크롤마다 화면 전체를 다시 그리게 하므로 해제 */
+html.lite-fx body { background-attachment: scroll; }
+html.lite-fx body::before { display: none; }
+
+/* =================================================================
    #4 미세 조정 — 접근성: 모션 최소화 선호 시 애니메이션 정지
    ================================================================= */
 @media (prefers-reduced-motion: reduce) {
@@ -3944,6 +3993,18 @@ html.is-scrolling .detail-hero.rank-legend::after { animation-play-state: paused
   cursor: pointer;
 }
 .account-btn:disabled { opacity: 0.5; cursor: default; }
+/* 저사양 모드 토글: 꺼짐은 테두리만, 켜짐은 차분한 청록 */
+.account-btn.lite-fx-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid var(--card-border-dim);
+  color: var(--text);
+  text-align: left;
+}
+.account-btn.lite-fx-btn.on {
+  background: rgba(45, 212, 191, 0.16);
+  border-color: rgba(45, 212, 191, 0.6);
+  color: #99f6e4;
+}
 .account-btn.danger {
   background: rgba(239, 68, 68, 0.12);
   border: 1.5px solid rgba(239, 68, 68, 0.45);

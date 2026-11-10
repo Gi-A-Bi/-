@@ -121,6 +121,27 @@ function updateSoundButton() {
 }
 
 // ==============================
+// 저사양(전자칠판) 모드 — 기기별 설정 (localStorage)
+// ==============================
+// 전자칠판처럼 GPU 가 약하거나 하드웨어 가속이 꺼진 기기에서는 다이아/전설 카드의
+// 상시 애니메이션·블렌드 레이어·고정 배경이 스크롤 중 깜빡임과 끊김을 만든다.
+// 이 모드를 켜면 html.lite-fx 가 붙고 CSS 가 그 효과들을 정적인 모습으로 바꾼다.
+// 브라우저(기기)마다 따로 저장되므로 전자칠판에서만 켜 두면 된다. (설정 > 계정)
+const LITE_FX_STORAGE_KEY = 'classup_lite_fx_v1'
+state.liteFx = localStorage.getItem(LITE_FX_STORAGE_KEY) === 'on'
+
+function applyLiteFx() {
+  document.documentElement.classList.toggle('lite-fx', !!state.liteFx)
+}
+applyLiteFx()
+
+function toggleLiteFx() {
+  state.liteFx = !state.liteFx
+  localStorage.setItem(LITE_FX_STORAGE_KEY, state.liteFx ? 'on' : 'off')
+  applyLiteFx()
+}
+
+// ==============================
 // Auth 세션 저장/복원
 // ==============================
 function saveAuthSession() {
@@ -2914,6 +2935,17 @@ async function renderAccountSettings() {
 
       <div class="account-divider"></div>
 
+      <div class="account-label">화면 효과</div>
+      <button class="account-btn lite-fx-btn ${state.liteFx ? 'on' : ''}" id="lite-fx-btn" aria-pressed="${state.liteFx ? 'true' : 'false'}">
+        ${liteFxBtnLabel()}
+      </button>
+      <div class="hint-text">
+        전자칠판처럼 화면이 깜빡이거나 느린 기기에서 켜 주세요. 다이아·전설 카드의 움직이는 효과와
+        무거운 배경을 가볍게 그립니다. 지금 쓰는 이 기기(브라우저)에만 적용돼요.
+      </div>
+
+      <div class="account-divider"></div>
+
       <div class="account-label">비밀번호 변경</div>
       <input type="password" id="pw-new" class="account-input" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" />
       <input type="password" id="pw-new2" class="account-input" placeholder="새 비밀번호 확인" autocomplete="new-password" />
@@ -2924,6 +2956,15 @@ async function renderAccountSettings() {
       <button class="account-btn danger" id="account-logout">로그아웃</button>
     </div>
   `
+
+  document.getElementById('lite-fx-btn').onclick = () => {
+    toggleLiteFx()
+    const btn = document.getElementById('lite-fx-btn')
+    btn.classList.toggle('on', state.liteFx)
+    btn.setAttribute('aria-pressed', state.liteFx ? 'true' : 'false')
+    btn.innerHTML = liteFxBtnLabel()
+    showToast(state.liteFx ? '저사양 모드를 켰어요. 이 기기에서는 카드를 가볍게 그립니다.' : '저사양 모드를 껐어요.', 'success', state.liteFx ? '🪶' : '✨')
+  }
 
   document.getElementById('pw-change-btn').onclick = async () => {
     const pw = document.getElementById('pw-new').value
@@ -2949,6 +2990,10 @@ async function renderAccountSettings() {
     await signOut()
     location.reload()
   }
+}
+
+function liteFxBtnLabel() {
+  return state.liteFx ? '🪶 저사양 모드 (전자칠판용): 켜짐' : '✨ 저사양 모드 (전자칠판용): 꺼짐'
 }
 
 // Supabase Auth로 비밀번호 변경 (로그인된 토큰 필요, 만료 시 1회 갱신 후 재시도)
